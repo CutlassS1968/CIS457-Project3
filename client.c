@@ -70,25 +70,43 @@ bool handshake(uint16_t portNum,
 }
 
 
-bool get_user_input(char* address_out, uint16_t* port_out, char* name_out) {
+bool process_commandline_args(
+        int argc, char* argv[], char* address_out,
+        uint16_t* port_out, char* name_out) {
     if (NULL == address_out || NULL == port_out|| NULL == name_out) {
         return false;
     }
-    // TODO: Should probably just use command args
 
-    printf("Enter username: ");
-    scanf("%s%*c", name_out);
-    printf("user entered:[%s]\n", name_out);
+    if (argc != 4) {
+        printf("usage:\n");
+        printf("./client IPADDRESS PORT USERNAME\n");
+        return false;
+    }
 
+    strcpy(address_out, argv[1]);
+    *port_out = atoi(argv[2]);
+    strcpy(name_out, argv[3]);
 
-    printf("Enter server IP address: ");
-    scanf("%s%*c", address_out);
-
-
-    printf("Enter port number: ");
-    scanf("%hd%*c", port_out);
+    printf("ip address: %s\n", address_out);
+    printf("port number %hu\n", *port_out);
+    printf("username %s\n", name_out);
 
     return true;
+
+
+//    printf("Enter username: ");
+//    scanf("%s%*c", name_out);
+//    printf("user entered:[%s]\n", name_out);
+//
+//
+//    printf("Enter server IP address: ");
+//    scanf("%s%*c", address_out);
+//
+//
+//    printf("Enter port number: ");
+//    scanf("%hd%*c", port_out);
+
+//    return true;
 }
 
 
@@ -107,7 +125,7 @@ int main(int argc, char** argv) {
     /* clean up */
     atexit(&clean_up);
 
-    if (!get_user_input(ipaddr, &portNum, username))
+    if (!process_commandline_args(argc, argv, ipaddr, &portNum, username))
         return EXIT_FAILURE;
 
     if (!handshake(portNum, ipaddr, username)) {
