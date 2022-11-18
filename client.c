@@ -6,24 +6,68 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #define NAME_SIZE 128
 #define BUFFER_SIZE 1024
 
 /* remember kids globals are bad. m'kay? */
 int sockfd = -1;
-void clean_up(void) {
-    printf("closing open descriptors\n");
 
+/* Structs */
+
+/* Helper Methods */
+void clean_up(void) {
+    printf("cleaning up...\n");
     if (-1 != sockfd) {
         printf("closing open socket descriptor...\n");
         close(sockfd);
     }
 }
 
-/* Structs */
+bool handshake(uint16_t portNum,
+               char* ipaddr,
+               char* username) {
+    if (NULL == ipaddr || NULL == username) {
+        return false;
+    }
 
-/* Helper Methods */
+    /* init */
+    struct sockaddr_in serveraddr;
+    memset(&serveraddr, 0, sizeof(serveraddr));
+    serveraddr.sin_family = AF_INET;
+    serveraddr.sin_port = htons(portNum);
+    serveraddr.sin_addr.s_addr = inet_addr(ipaddr);
+
+    /* open socket */
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        perror("socket");
+        return false;
+    }
+
+    /* connect to server */
+    int c = connect(sockfd, (struct sockaddr*) &serveraddr, sizeof(serveraddr));
+    if (c < 0) {
+        printf("There was a problem connecting to the server\n");
+        close(sockfd);
+        return 1;
+    }
+
+    /* P2 recv server public key  */
+    /* P2 encrypt our symmetric key with server public key */
+    /* P2 send server our key */
+
+    /* P2 send our name encrypted with symmetric key */
+    /* send server out username */
+    ssize_t sent = send(sockfd, username, strlen(username) + 1, 0);
+    if (sent < 0) {
+        perror("send name");
+        return false;
+    }
+
+    return true;
+}
 
 /* Main Loop */
 int main(int argc, char** argv) {
@@ -32,19 +76,9 @@ int main(int argc, char** argv) {
     char buffer_in[BUFFER_SIZE];
     char buffer_out[BUFFER_SIZE];
 
-    /* init */
-    FD_ZERO(&fds);
-
     /* clean up */
     atexit(&clean_up);
 
-
-    /* open socket */
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) {
-        perror("socket");
-        return EXIT_FAILURE;
-    }
 
     // TODO: Should probably just use command args
     char username[NAME_SIZE];
@@ -60,27 +94,18 @@ int main(int argc, char** argv) {
     printf("Enter port number: ");
     scanf("%hd%*c", &portNum);
 
-    struct sockaddr_in serveraddr;
-    serveraddr.sin_family = AF_INET;
-    serveraddr.sin_port = htons(portNum);
-    serveraddr.sin_addr.s_addr = inet_addr(ipaddr);
-
-    int n = connect(sockfd, (struct sockaddr*)&serveraddr, sizeof(serveraddr));
-    if(n < 0) {
-        printf("There was a problem connecting to the server\n");
-        close(sockfd);
-        return 1;
+    if (!handshake(portNum, ipaddr, username)) {
+        return EXIT_FAILURE;
     }
 
-    // Send first packet to server for user info
-    memcpy(buffer_out, username, sizeof(username));
-    send(sockfd, buffer_out, strlen(buffer_out) + 1, 0);
 
     fprintf(stdout, "> ");
     fflush(stdout);
     while (1) {
-        FD_SET(sockfd, &fds);
-        FD_SET(fileno(stdin), &fds);
+        /* only two fds. just set everytime */
+        FD_ZERO(&fds); /* because fd_set hates me */
+        FD_SET(sockfd, &fds); /* receive socket */
+        FD_SET(fileno(stdin), &fds); /* stdin */
         int s = select(FD_SETSIZE, &fds, NULL, NULL, &tv);
         if (s < 0) {
             printf("select error\n");
@@ -91,7 +116,7 @@ int main(int argc, char** argv) {
         /* check for user input */
         if (FD_ISSET(fileno(stdin), &fds)) {
             /* get text input */
-            scanf("%s%*c", buffer_out);
+            scanf("%s%*c", buffer_out); // todo: causing issues only read first word.
             size_t len = strlen(buffer_out);
             if (len > 0) {
                 /* exit. duh. */
@@ -130,11 +155,6 @@ int main(int argc, char** argv) {
                 printf("%s\n", buffer_in);
             }
         }
-
-
-
-
-
     }
 
     return EXIT_SUCCESS;

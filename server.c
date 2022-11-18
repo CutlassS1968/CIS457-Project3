@@ -30,10 +30,9 @@ typedef struct client {
 } client;
 client clients[FD_SETSIZE];
 
-/* this allows us to do cleanup for whatever reason
- * when the program exits */
+/* this allows us to do cleanup whenever the program exits */
 void clean_up(void) {
-    printf("cleaning up any open sockets\n");
+    printf("cleaning up...\n");
 
     /* close stray data sockets */
     for (int i = 0; i < FD_SETSIZE; i++) {
@@ -48,6 +47,40 @@ void clean_up(void) {
     FD_ZERO(&sockets_to_watch);
 }
 
+bool handshake(int fd) {
+    /* get username */
+    ssize_t rec = recv(fd, clients[fd].name, NAME_SIZE, 0);
+    if (rec < 0) {
+        perror("recv username");
+        return false;
+    }
+
+    /* P2 send user our public key */
+
+    /* P2 recv users symmetric key */
+    /* P2 decrypt with our private key */
+
+    /* P2 recv users encrypted username */
+    /* P2 decrypt username */
+
+    /* validate user name */
+    for (int e = 0; e < FD_SETSIZE; e++) {
+        if (e != fd && clients[e].active) {
+            /* duplicate name */
+            if (strcmp(clients[fd].name, clients[e].name) == 0) {
+                printf("%d and %d are duplicates of %s\n", fd, e, clients[fd].name);
+                /* use fd to make unique */
+                sprintf(&clients[fd].name[rec - 1], "%d", fd);
+                printf("new name %s\n", clients[fd].name);
+            }
+        }
+    }
+    clients[fd].active = true;
+    FD_SET(fd, &sockets_to_watch);
+    printf("client %d %s has joined the chat.\n", fd, clients[fd].name);
+
+    return true;
+}
 
 bool create_listen(int port) {
     struct sockaddr_in serveraddr;
@@ -117,6 +150,7 @@ void list_cmd() {
 int main(int argc, char** argv) {
     int port = 9999;
 
+    /* init */
     install_signal_handler(); /* for safe shutdown */
     atexit(&clean_up); /* clean up no matter how we exit */
 
@@ -153,31 +187,8 @@ int main(int argc, char** argv) {
             }
             else {
                 /* new user connection */
-
-                /* store new client information () */
-                // move this to a helper function
-                {
-                    /* get username */
-                    ssize_t rec = recv(fd, clients[fd].name, NAME_SIZE, 0);
-                    if (rec < 0) {
-                        perror("recv username");
-                        break;
-                    }
-                    /* validate user name */
-                    for (int e = 0; e < FD_SETSIZE; e++) {
-                        if (e != fd && clients[e].active) {
-                            /* duplicate name */
-                            if (strcmp(clients[fd].name, clients[e].name) == 0) {
-                                printf("%d and %d are duplicates of %s\n", fd, e, clients[fd].name);
-                                /* use fd to make unique */
-                                sprintf(&clients[fd].name[rec - 1], "%d", fd);
-                                printf("new name %s\n", clients[fd].name);
-                            }
-                        }
-                    }
-                    clients[fd].active = true;
-                    FD_SET(fd, &sockets_to_watch);
-                    printf("client %d %s has joined the chat.\n", fd, clients[fd].name);
+                if (!handshake(fd)) {
+                    return EXIT_FAILURE;
                 }
             }
         }
@@ -206,20 +217,10 @@ int main(int argc, char** argv) {
                     }
                 }
                 else {
-                    /* receiver data */
+
+                    /* received data */
+                    /* P2 decrypt message with users key */
                     printf("[%d] %s\n", i, buffer_in);
-
-                    /* tag message with username */
-                    sprintf(buffer_out, "%s:%s", clients[i].name, buffer_in);
-
-                    /* just echo to everybody for now */
-                    for (int e = 0; e < FD_SETSIZE; e++) {
-                        if (e != i && clients[e].active) {
-                            ssize_t sent = send(e, buffer_out, strlen(buffer_out) + 1, 0);
-                            if (-1 == sent) { printf("error sending chat all\n"); }
-                        }
-                    }
-
 
                     // Taking a string builder approach. Each sub cmd
                     // function will build a string and return it here
@@ -241,10 +242,21 @@ int main(int argc, char** argv) {
 
                     // All incomming data from clients will be interpreted as a command.
                     //
+
+                    /* tag message with username */
+                    sprintf(buffer_out, "%s:%s", clients[i].name, buffer_in);
+
+                    /* just echo to everybody for now */
+                    for (int e = 0; e < FD_SETSIZE; e++) {
+                        if (e != i && clients[e].active) {
+                            /* P2 encrypt message with users key */
+                            ssize_t sent = send(e, buffer_out, strlen(buffer_out) + 1, 0);
+                            if (-1 == sent) { printf("error sending chat all\n"); }
+                        }
+                    }
                 }
             }
         }
-
     }
 
     return EXIT_SUCCESS;
