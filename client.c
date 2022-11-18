@@ -151,21 +151,22 @@ int main(int argc, char** argv) {
         /* check for user input */
         if (FD_ISSET(fileno(stdin), &fds)) {
             /* get text input */
-            scanf("%s%*c", buffer_out); // todo: causing issues only read first word.
+            fgets(buffer_out, sizeof(buffer_out), stdin);
             size_t len = strlen(buffer_out);
+            if (len > 0) { buffer_out[len - 1] = '\0'; } /* remove \n */
+            len = strlen(buffer_out);
+            /* skip empty strings */
             if (len > 0) {
                 /* !exit. duh. */
                 if (strcmp(buffer_out, "!exit") == 0) {
                     return EXIT_SUCCESS;
                 }
 
-                /* P1 admin request */
-                // todo: UNTESTED
-                //  found on stackoverflow.
-                //  looks like good starter for the pwd
+                /* admin request */
                 if (strcmp(buffer_out, "!admin") == 0)
                 {
-                    //https://stackoverflow.com/questions/59922972/how-to-stop-echo-in-terminal-using-c
+                    // initial code from
+                    // https://stackoverflow.com/questions/59922972/how-to-stop-echo-in-terminal-using-c
                     printf("Enter password: ");
 
                     struct termios term;
@@ -176,14 +177,18 @@ int main(int argc, char** argv) {
 
                     char passwd[32];
                     fgets(passwd, sizeof(passwd), stdin);
+                    len = strlen(passwd);
+                    if (len > 0) { passwd[len - 1] = '\0'; } /* remove \n */
 
                     term.c_lflag |= ECHO;
                     tcsetattr(fileno(stdin), 0, &term);
 
                     printf("\nYour password is: %s\n", passwd);
 
-                    // send "!admin password
+                    sprintf(buffer_out, "%s %s", buffer_out, passwd);
+                    len = strlen(buffer_out);
 
+                    // send "!admin password
                 }
 
                 /* send text */
