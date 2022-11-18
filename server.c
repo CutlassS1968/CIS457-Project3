@@ -137,9 +137,26 @@ int find_user(char * username){
 }
 
 /* Helper Methods */
-char* all_cmd(char* data) {
+char* all_cmd(int fd, char* data) {
     // take data and build string to send to all clients
     // [<sender_username>]: <data>
+
+    char buffer_out[BUFFER_SIZE];
+    memset(buffer_out, 0, sizeof(buffer_out));
+
+    /* tag message with username */
+    sprintf(buffer_out, "%s:%s", clients[fd].name, data);
+
+    /* find all users that are not sender and send */
+    for (int e = 0; e < FD_SETSIZE; e++) {
+        if (clients[e].active && e != fd) {
+            /* P2 encrypt with users key */
+            /* P2 send encrypted text */
+            ssize_t sent = send(e, buffer_out, strlen(buffer_out) + 1, 0);
+            if (-1 == sent) { printf("error sending chat all\n"); }
+        }
+    }
+
     return NULL;
 }
 
@@ -264,7 +281,7 @@ int main(int argc, char** argv) {
                         // Input Not Valid
 
                         // Parse the first word out of the data.
-                        /* no idea how to do this. using strtok for now */
+                        /* todo: no idea how to do this. using strtok for now */
                         char* command = strtok(buffer_in, " \n");
                         // All incoming data from clients will be interpreted as a command.
                         if (NULL != command) {
@@ -272,7 +289,7 @@ int main(int argc, char** argv) {
                             size_t len = strlen(data);
                             printf("command: %s\n", command);
                             // make sure buffer_in was zeroed out before recv
-                            // or you will have ghost msg data.
+                            // or you will have ghost msg data and a bad day.
                             printf("msg: %s\n", data);
                             printf("length: %zu\n", len);
 
@@ -288,7 +305,7 @@ int main(int argc, char** argv) {
                             }
 
                             if (strcmp("!all", command) == 0) {
-                                all_cmd(data);
+                                all_cmd(i, data);
                             }
 
                             if (strcmp("!list", command) == 0) {
