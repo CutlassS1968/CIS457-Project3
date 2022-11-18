@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <termios.h>
 
 #define NAME_SIZE 128
 #define BUFFER_SIZE 1024
@@ -153,9 +154,36 @@ int main(int argc, char** argv) {
             scanf("%s%*c", buffer_out); // todo: causing issues only read first word.
             size_t len = strlen(buffer_out);
             if (len > 0) {
-                /* exit. duh. */
-                if (strcmp(buffer_out, "exit") == 0) {
+                /* !exit. duh. */
+                if (strcmp(buffer_out, "!exit") == 0) {
                     return EXIT_SUCCESS;
+                }
+
+                /* P1 admin request */
+                // todo: UNTESTED
+                //  found on stackoverflow.
+                //  looks like good starter for the pwd
+                if (strcmp(buffer_out, "!admin") == 0)
+                {
+                    //https://stackoverflow.com/questions/59922972/how-to-stop-echo-in-terminal-using-c
+                    printf("Enter password: ");
+
+                    struct termios term;
+                    tcgetattr(fileno(stdin), &term);
+
+                    term.c_lflag &= ~ECHO;
+                    tcsetattr(fileno(stdin), 0, &term);
+
+                    char passwd[32];
+                    fgets(passwd, sizeof(passwd), stdin);
+
+                    term.c_lflag |= ECHO;
+                    tcsetattr(fileno(stdin), 0, &term);
+
+                    printf("\nYour password is: %s\n", passwd);
+
+                    // send "!admin password
+
                 }
 
                 /* send text */
