@@ -125,6 +125,17 @@ bool create_listen(int port) {
     return true;
 }
 
+int find_user(char * username){
+    for (int e = 0; e < FD_SETSIZE; e++) {
+        if (clients[e].active) {
+            if (strcmp(username, clients[e].name) == 0) {
+                return e;
+            }
+        }
+    }
+    return -1;
+}
+
 /* Helper Methods */
 char* all_cmd(char* data) {
     // take data and build string to send to all clients
@@ -208,11 +219,12 @@ int main(int argc, char** argv) {
         /* check active data sockets */
         for (int i = 0; i < FD_SETSIZE; i++) {
             if (FD_ISSET(i, &temp_sockets) && i != listen_fd) {
-                /* theoretically receive some data */
                 char buffer_in[BUFFER_SIZE];
                 char buffer_out[BUFFER_SIZE];
                 memset(buffer_in, 0, sizeof(buffer_in));
                 memset(buffer_out, 0, sizeof(buffer_out));
+
+                /* theoretically receive some data */
                 ssize_t rec = recv(i, buffer_in, BUFFER_SIZE, 0);
                 if (rec < 0) {
                     perror("recv");
@@ -231,7 +243,6 @@ int main(int argc, char** argv) {
                     }
                 }
                 else {
-
                     /* received data */
                     /* P2 decrypt message with users key */
                     printf("[%d] %s\n", i, buffer_in);
@@ -291,18 +302,16 @@ int main(int argc, char** argv) {
                             // If it doesn't fit in any of the commands. check usernames table
 
                             /* search usernames */
-                            for (int e = 0; e < FD_SETSIZE; e++) {
-                                if (e != i && clients[e].active) {
-                                    if (strcmp(&command[1], clients[e].name) == 0) {
-                                        /* tag message with username */
-                                        sprintf(buffer_out, "%s:%s", clients[i].name, data);
-
-                                        ssize_t sent = send(e, buffer_out, strlen(buffer_out) + 1, 0);
-                                        if (-1 == sent) { printf("error sending chat user\n"); }
-                                    }
-                                    continue;
-                                }
+                            int fd = find_user(&command[1]);
+                            /* don't send back to yourself */
+                            if (fd != -1 && i != fd)
+                            {
+                                /* tag message with username */
+                                sprintf(buffer_out, "%s:%s", clients[i].name, data);
+                                ssize_t sent = send(fd, buffer_out, strlen(buffer_out) + 1, 0);
+                                if (-1 == sent) { printf("error sending chat user\n"); }
                             }
+
 
                         }
 
@@ -313,6 +322,7 @@ int main(int argc, char** argv) {
                         continue;
                     }
 
+                    // todo: old echo server, remove
                     /* tag message with username */
                     sprintf(buffer_out, "%s:%s", clients[i].name, buffer_in);
 
