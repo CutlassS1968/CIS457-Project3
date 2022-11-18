@@ -69,6 +69,30 @@ bool handshake(uint16_t portNum,
     return true;
 }
 
+
+bool get_user_input(char* address_out, uint16_t* port_out, char* name_out) {
+    if (NULL == address_out || NULL == port_out|| NULL == name_out) {
+        return false;
+    }
+    // TODO: Should probably just use command args
+
+    printf("Enter username: ");
+    scanf("%s%*c", name_out);
+    printf("user entered:[%s]\n", name_out);
+
+
+    printf("Enter server IP address: ");
+    scanf("%s%*c", address_out);
+
+
+    printf("Enter port number: ");
+    scanf("%hd%*c", port_out);
+
+    return true;
+}
+
+
+
 /* Main Loop */
 int main(int argc, char** argv) {
     struct timeval tv = {0, 0}; /* dont block */
@@ -76,23 +100,15 @@ int main(int argc, char** argv) {
     char buffer_in[BUFFER_SIZE];
     char buffer_out[BUFFER_SIZE];
 
+    char username[NAME_SIZE];
+    char ipaddr[20];
+    uint16_t portNum;
+
     /* clean up */
     atexit(&clean_up);
 
-
-    // TODO: Should probably just use command args
-    char username[NAME_SIZE];
-    printf("Enter username: ");
-    scanf("%s%*c", username);
-    printf("user entered:[%s]\n", username);
-
-    char ipaddr[20];
-    printf("Enter server IP address: ");
-    scanf("%s%*c", ipaddr);
-
-    uint16_t portNum;
-    printf("Enter port number: ");
-    scanf("%hd%*c", &portNum);
+    if (!get_user_input(ipaddr, &portNum, username))
+        return EXIT_FAILURE;
 
     if (!handshake(portNum, ipaddr, username)) {
         return EXIT_FAILURE;
