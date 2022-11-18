@@ -81,7 +81,7 @@ bool handshake(int fd) {
                 sprintf(&clients[fd].name[rec - 1], "%d", fd);
                 printf("new name %s\n", clients[fd].name);
 
-                sprintf(buffer_out, "name already take. new name %s", clients[fd].name);
+                sprintf(buffer_out, "name already taken. new name %s", clients[fd].name);
                 ssize_t sent = send(fd, buffer_out, strlen(buffer_out) + 1, 0);
                 if (-1 == sent) { printf("error sending new name\n"); }
             }
