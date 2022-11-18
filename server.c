@@ -211,6 +211,8 @@ int main(int argc, char** argv) {
                 /* theoretically receive some data */
                 char buffer_in[BUFFER_SIZE];
                 char buffer_out[BUFFER_SIZE];
+                memset(buffer_in, 0, sizeof(buffer_in));
+                memset(buffer_out, 0, sizeof(buffer_out));
                 ssize_t rec = recv(i, buffer_in, BUFFER_SIZE, 0);
                 if (rec < 0) {
                     perror("recv");
@@ -234,26 +236,82 @@ int main(int argc, char** argv) {
                     /* P2 decrypt message with users key */
                     printf("[%d] %s\n", i, buffer_in);
 
-                    // Taking a string builder approach. Each sub cmd
-                    // function will build a string and return it here
+                    /* user commands */
+                    if (buffer_in[0] == '!') {
+                        printf("received a user command...\n");
 
-                    // Commands:
-                    // !all			Send output to all clients
-                    // !admin		Send output to sender
-                    // !help		Send output to sender
-                    // !list		Send output to sender
-                    // !kick		Send output to receiver
-                    // !<username>	Send output to receiver
-                    // Input Not Valid
+                        // Taking a string builder approach. Each sub cmd
+                        // function will build a string and return it here
 
-                    // Parse the first word out of the data.
-                    // Compare the first string to all of the possible commands
-                    // 		If match, pass remaining data to appropriate function
-                    // If it doesn't fit in any of the commands. check usernames table
-                    // If the string doesn't fit a username, set out_str to appropriate err msg.
+                        // Commands:
+                        // !all			Send output to all clients
+                        // !admin		Send output to sender
+                        // !help		Send output to sender
+                        // !list		Send output to sender
+                        // !kick		Send output to receiver
+                        // !<username>	Send output to receiver
+                        // Input Not Valid
 
-                    // All incomming data from clients will be interpreted as a command.
-                    //
+                        // Parse the first word out of the data.
+                        /* no idea how to do this. using strtok for now */
+                        char* command = strtok(buffer_in, " \n");
+                        // All incoming data from clients will be interpreted as a command.
+                        if (NULL != command) {
+                            char* data = &buffer_in[strlen(command) + 1];
+                            size_t len = strlen(data);
+                            printf("command: %s\n", command);
+                            // make sure buffer_in was zeroed out before recv
+                            // or you will have ghost msg data.
+                            printf("msg: %s\n", data);
+                            printf("length: %zu\n", len);
+
+                            // Compare the first string to all of the possible commands
+                            // 		If match, pass remaining data to appropriate function
+
+                            if (strcmp("!admin", command) == 0) {
+                                admin_cmd();
+                            }
+
+                            if (strcmp("!help", command) == 0) {
+                                help_cmd();
+                            }
+
+                            if (strcmp("!all", command) == 0) {
+                                all_cmd(data);
+                            }
+
+                            if (strcmp("!list", command) == 0) {
+                                list_cmd();
+                            }
+
+                            if (strcmp("!kick", command) == 0) {
+                                kick_cmd(data);
+                            }
+
+                            // If it doesn't fit in any of the commands. check usernames table
+
+                            /* search usernames */
+                            for (int e = 0; e < FD_SETSIZE; e++) {
+                                if (e != i && clients[e].active) {
+                                    if (strcmp(&command[1], clients[e].name) == 0) {
+                                        /* tag message with username */
+                                        sprintf(buffer_out, "%s:%s", clients[i].name, data);
+
+                                        ssize_t sent = send(e, buffer_out, strlen(buffer_out) + 1, 0);
+                                        if (-1 == sent) { printf("error sending chat user\n"); }
+                                    }
+                                    continue;
+                                }
+                            }
+
+                        }
+
+                        // If the string doesn't fit a username, set out_str to appropriate err msg.
+                        // send error message?
+
+                        /* bad command drop? */
+                        continue;
+                    }
 
                     /* tag message with username */
                     sprintf(buffer_out, "%s:%s", clients[i].name, buffer_in);
@@ -266,6 +324,8 @@ int main(int argc, char** argv) {
                             if (-1 == sent) { printf("error sending chat all\n"); }
                         }
                     }
+
+
                 }
             }
         }
