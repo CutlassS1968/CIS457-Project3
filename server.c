@@ -53,6 +53,7 @@ void clean_up(void) {
     FD_ZERO(&sockets_to_watch);
 }
 
+/* perform first connection handshake with client */
 bool handshake(int fd) {
     char buffer_out[BUFFER_SIZE];
 
@@ -94,6 +95,7 @@ bool handshake(int fd) {
     return true;
 }
 
+/* create a listening / new client socket */
 bool create_listen(int port) {
     struct sockaddr_in serveraddr;
     memset(&serveraddr, 0, sizeof(struct sockaddr_in));
@@ -125,6 +127,7 @@ bool create_listen(int port) {
     return true;
 }
 
+/* search user database for name. return their fd */
 int find_user(char * username){
     for (int e = 0; e < FD_SETSIZE; e++) {
         if (clients[e].active) {
@@ -137,6 +140,8 @@ int find_user(char * username){
 }
 
 /* Helper Methods */
+
+// best guess at how to implement prob s/b differrent
 char* all_cmd(int fd, char* data) {
     // take data and build string to send to all clients
     // [<sender_username>]: <data>
@@ -168,6 +173,9 @@ char* username_cmd(char* data) {
 
 char* admin_cmd() {
     // TODO: Does !admin mod yourself or someone else?
+
+    /* P1 verify password */
+    /* P1 set admin=true; */
     return NULL;
 }
 
@@ -193,6 +201,9 @@ int main(int argc, char** argv) {
     /* init */
     install_signal_handler(); /* for safe shutdown */
     atexit(&clean_up); /* clean up no matter how we exit */
+
+    /* P2 initialize encryption protocols stuff */
+    /* P2 load our public and private key from disk */
 
     // Connection socket
     // Open connection fd
@@ -279,6 +290,22 @@ int main(int argc, char** argv) {
                         // !kick		Send output to receiver
                         // !<username>	Send output to receiver
                         // Input Not Valid
+
+                        // bryan - possible optional command most from spec docs
+                        // !uplift - make another user admin
+                        // !nerf - remove another user admin privileges
+                        // !mute
+                        // !unmute
+                        // !rename OLDNAME NEWNAME
+                        // @rename NEWNAME (self)
+                        // !shuffle - randomly mix everyone's name
+                        // !me - what is my username?
+                        // !reverse USERNAME - make all the user text they send backwards
+                        // !uno USERNAME     - make all the user text they receive backwards
+                        // !deathclock USERNAME TIMEINSECONDS - send user countdown until they get kicked
+
+
+
 
                         // Parse the first word out of the data.
                         /* todo: no idea how to do this. using strtok for now */

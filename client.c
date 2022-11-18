@@ -18,6 +18,8 @@ int sockfd = -1;
 /* Structs */
 
 /* Helper Methods */
+
+/* on exit do some cleanup */
 void clean_up(void) {
     printf("cleaning up...\n");
     if (-1 != sockfd) {
@@ -26,6 +28,7 @@ void clean_up(void) {
     }
 }
 
+/* perform all the necessary connection protocols with server */
 bool handshake(uint16_t portNum,
                char* ipaddr,
                char* username) {
@@ -192,6 +195,8 @@ int main(int argc, char** argv) {
                 }
 
                 /* send text */
+                /* P2 encrypt text with our key */
+                /* P2 send encrypted text */
                 ssize_t sent = send(sockfd, buffer_out, len + 1, 0);
                 if (sent < 0) {
                     printf("send error\n");
@@ -219,6 +224,8 @@ int main(int argc, char** argv) {
                 //      Print whatever the server sends it
                 //      Send the server whatever the user inputs
                 // That's basically it.
+                /* P2 decrypt text with our key */
+                /* P2 print decrypted text */
                 printf("%s\n", buffer_in);
             }
         }
