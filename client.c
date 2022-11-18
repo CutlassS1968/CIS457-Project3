@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 // Client should be relatively simple as we are offloading most if not all of the effort
 // to the server.
@@ -37,7 +38,7 @@ int main(int argc, char** argv) {
     struct sockaddr_in serveraddr;
     serveraddr.sin_family = AF_INET;
     serveraddr.sin_port = htons(portNum);
-    serveraddr.sinn_addr.s_addr = inet_addr(ipaddr);
+    serveraddr.sin_addr.s_addr = inet_addr(ipaddr);
 
     int n = connect(sockfd, (struct sockaddr*)&serveraddr, sizeof(serveraddr));
     if(n < 0) {
@@ -69,4 +70,6 @@ int main(int argc, char** argv) {
         printf("%s\n", buffer);
 
     }
+
+    return EXIT_SUCCESS;
 }
