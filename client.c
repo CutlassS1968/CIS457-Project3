@@ -7,12 +7,19 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-// Client should be relatively simple as we are offloading most if not all of the effort
-// to the server.
-
-// I am 100% confident that most of this is a bad idea, but alas, this is what I have come up with.
-
+#define NAME_SIZE 128
 #define BUFFER_SIZE 1024
+
+/* remember kids globals are bad. m'kay? */
+int sockfd = -1;
+void clean_up(void) {
+    printf("closing open descriptors\n");
+
+    if (-1 != sockfd) {
+        printf("closing open socket descriptor...\n");
+        close(sockfd);
+    }
+}
 
 /* Structs */
 
@@ -20,12 +27,30 @@
 
 /* Main Loop */
 int main(int argc, char** argv) {
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    struct timeval tv = {0, 0}; /* dont block */
+    fd_set fds;
+    char buffer_in[BUFFER_SIZE];
+    char buffer_out[BUFFER_SIZE];
+
+    /* init */
+    FD_ZERO(&fds);
+
+    /* clean up */
+    atexit(&clean_up);
+
+
+    /* open socket */
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        perror("socket");
+        return EXIT_FAILURE;
+    }
 
     // TODO: Should probably just use command args
-    char username[128];
+    char username[NAME_SIZE];
     printf("Enter username: ");
     scanf("%s%*c", username);
+    printf("user entered:[%s]\n", username);
 
     char ipaddr[20];
     printf("Enter server IP address: ");
@@ -48,26 +73,67 @@ int main(int argc, char** argv) {
     }
 
     // Send first packet to server for user info
-    char buffer[BUFFER_SIZE];
-    memcpy(buffer, username, sizeof(username));
-    send(sockfd, buffer, BUFFER_SIZE, 0);
+    memcpy(buffer_out, username, sizeof(username));
+    send(sockfd, buffer_out, strlen(buffer_out) + 1, 0);
 
-
+    fprintf(stdout, "> ");
+    fflush(stdout);
     while (1) {
+        FD_SET(sockfd, &fds);
+        FD_SET(fileno(stdin), &fds);
+        int s = select(FD_SETSIZE, &fds, NULL, NULL, &tv);
+        if (s < 0) {
+            printf("select error\n");
+            return EXIT_FAILURE;
+        }
 
-        // Client has a really simple job:
-        //      Print whatever the server sends it
-        //      Send the server whatever the user inputs
-        // That's basically it.
 
-        // Get text input
-        // TODO: need to allow for interrupt if incoming message, need to research this
-        scanf("%s%*c", buffer);
-        send(sockfd, buffer, BUFFER_SIZE, 0);
-        memset(buffer, 0, BUFFER_SIZE);
+        /* check for user input */
+        if (FD_ISSET(fileno(stdin), &fds)) {
+            /* get text input */
+            scanf("%s%*c", buffer_out);
+            size_t len = strlen(buffer_out);
+            if (len > 0) {
+                /* exit. duh. */
+                if (strcmp(buffer_out, "exit") == 0) {
+                    return EXIT_SUCCESS;
+                }
 
-        recv(sockfd, &buffer, BUFFER_SIZE, 0);
-        printf("%s\n", buffer);
+                /* send text */
+                ssize_t sent = send(sockfd, buffer_out, len + 1, 0);
+                if (sent < 0) {
+                    printf("send error\n");
+                    return EXIT_FAILURE;
+                }
+            }
+
+            fprintf(stdout, "> ");
+            fflush(stdout);
+        }
+
+        /* check for data from server */
+        if (FD_ISSET(sockfd, &fds)) {
+            ssize_t rec = recv(sockfd, buffer_in, BUFFER_SIZE, 0);
+            if (rec < 0) {
+                printf("receive error\n");
+                return EXIT_FAILURE;
+            }
+            else if (0 == rec) {
+                /* server closed connection */
+                return EXIT_SUCCESS;
+            }
+            else {
+                // Client has a really simple job:
+                //      Print whatever the server sends it
+                //      Send the server whatever the user inputs
+                // That's basically it.
+                printf("%s\n", buffer_in);
+            }
+        }
+
+
+
+
 
     }
 

@@ -5,17 +5,78 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/select.h>
+#include <stdbool.h>
+#include <stdlib.h>
+
+
+#define NAME_SIZE 128
+#define BUFFER_SIZE 1024
 
 /* Structs */
 
 // May need to keep client's port num incase multiple people on same network?
 // Not sure, socket might take care of that for us.
-struct client {
-    // client's name
-    // client's fd_connection
-    // admin boolean
-    // encription key
-};
+fd_set sockets_to_watch;
+int listen_fd;
+#define MAX_QUE 10
+
+typedef struct client {
+    bool active;
+    char name[NAME_SIZE];
+    bool admin;
+    //unsigned char key[32];
+} client;
+client clients[FD_SETSIZE];
+
+/* this allows us to do cleanup for whatever reason
+ * when the program exits */
+void clean_up(void) {
+    printf("cleaning up any open sockets\n");
+
+    /* close stray data sockets */
+    for (int i = 0; i < FD_SETSIZE; i++) {
+        if (clients[i].active) {
+            printf("closing %d\n", i);
+            close(i);
+        }
+    }
+    /* new connection socket */
+    close(listen_fd);
+    /* just to be safe */
+    FD_ZERO(&sockets_to_watch);
+}
+
+
+bool create_listen(int port) {
+    struct sockaddr_in serveraddr;
+    memset(&serveraddr, 0, sizeof(struct sockaddr_in));
+    serveraddr.sin_family = AF_INET;
+    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serveraddr.sin_port = htons(port);
+
+    /* socket for listening */
+    listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (listen_fd < 0) {
+        printf("socket error\n");
+        return false;
+    }
+    FD_SET(listen_fd, &sockets_to_watch);
+
+    int b = bind(listen_fd, (struct sockaddr*) &serveraddr, sizeof(serveraddr));
+    // Address already in use ??? setsockopt with? SO_REUSEADDR, SO_REUSEPORT , SO_LINGER,
+    if (b < 0) {
+        perror("bind");
+        return false;
+    }
+
+    int l = listen(listen_fd, MAX_QUE);
+    if (l < 0) {
+        printf("listen error\n");
+        return false;
+    }
+
+    return true;
+}
 
 /* Helper Methods */
 char* all_cmd(char* data) {
@@ -52,36 +113,133 @@ void list_cmd() {
 
 /* Main Loop */
 int main(int argc, char** argv) {
-    // Connection socket
+    int port = 9999;
 
+    /* clean up */
+    atexit(&clean_up); /* clean up no matter how we exit */
+
+    // Connection socket
     // Open connection fd
+    if (!create_listen(port)) { return EXIT_FAILURE; }
+
+    printf("server started...\n");
 
     // Main loop
-    while (1) {
-        // loop data connection
+    while (1) { // todo: need safe exit?
+        /* wait for actionable activity on the line */
+        fd_set temp_sockets = sockets_to_watch;
+        int s = select(FD_SETSIZE, &temp_sockets, NULL, NULL, NULL);
+        if (s < 0) {
+            perror("select()");
+            return EXIT_FAILURE;
+        }
 
-        // recv data
+        /* check for new client connection */
+        if (FD_ISSET(listen_fd, &temp_sockets)) {
+            struct sockaddr_in clientaddr;
+            socklen_t len = sizeof(struct sockaddr_in);
+            memset(&clientaddr, 0, len);
+            int fd = accept(listen_fd, (struct sockaddr*) &clientaddr, &len);
+            if (-1 == fd) {
+                perror("accept");
+                return EXIT_FAILURE;
+            }
+            else if (fd >= FD_SETSIZE) {
+                printf("too many clients\n");
+                close(fd);
+            }
+            else {
+                /* new user connection */
 
-        // Taking a string builder approach. Each sub cmd
-        // function will build a string and return it here
+                /* store new client information () */
+                // move this to a helper function
+                {
+                    /* get username */
+                    ssize_t rec = recv(fd, clients[fd].name, NAME_SIZE, 0);
+                    if (rec < 0) {
+                        perror("recv username");
+                        break;
+                    }
+                    for (int e = 0; e < FD_SETSIZE; e++) {
+                        if (e != fd && clients[e].active) {
+                            /* duplicate name */
+                            if (strcmp(clients[fd].name, clients[e].name) == 0) {
+                                printf("%d and %d are duplicates of %s\n", fd, e, clients[fd].name);
+                                /* use fd to make unique */
+                                sprintf(&clients[fd].name[rec - 1], "%d", fd);
+                                printf("new name %s\n", clients[fd].name);
+                            }
+                        }
+                    }
+                    clients[fd].active = true;
+                    FD_SET(fd, &sockets_to_watch);
+                    printf("client %d %s has joined the chat.\n", fd, clients[fd].name);
+                }
+            }
+        }
 
-        // Commands:
-        // !all			Send output to all clients
-        // !admin		Send output to sender
-        // !help		Send output to sender
-        // !list		Send output to sender
-        // !kick		Send output to receiver
-        // !<username>	Send output to receiver
-        // Input Not Valid
+        /* check active data sockets */
+        for (int i = 0; i < FD_SETSIZE; i++) {
+            if (FD_ISSET(i, &temp_sockets) && i != listen_fd) {
+                /* theoretically receive some data */
+                char buffer_in[BUFFER_SIZE];
+                char buffer_out[BUFFER_SIZE];
+                ssize_t rec = recv(i, buffer_in, BUFFER_SIZE, 0);
+                if (rec < 0) {
+                    perror("recv");
+                    break;
+                }
+                else if (0 == rec) {
+                    /* client closed connection */
+                    /* deactivate client () */
+                    // todo: make helper function?
+                    {
+                        close(i);
+                        clients[i].active = false;
+                        FD_CLR(i, &sockets_to_watch);
+                        FD_CLR(i, &temp_sockets); // prob not needed
+                        printf("client %d %s has left the chat.\n", i, clients[i].name);
+                    }
+                }
+                else {
+                    /* receiver data */
+                    printf("[%d] %s\n", i, buffer_in);
 
-        // Parse the first word out of the data.
-        // Compare the first string to all of the possible commands
-        // 		If match, pass remaining data to appropriate function
-        // If it doesn't fit in any of the commands. check usernames table
-        // If the string doesn't fit a username, set out_str to appropriate err msg.
+                    /* tag message with username */
+                    sprintf(buffer_out, "%s:%s", clients[i].name, buffer_in);
 
-        // All incomming data from clients will be interpreted as a command.
-        //
+                    /* just echo to everybody for now */
+                    for (int e = 0; e < FD_SETSIZE; e++) {
+                        if (e != i && clients[e].active) {
+                            ssize_t sent = send(e, buffer_out, strlen(buffer_out) + 1, 0);
+                            if (-1 == sent) { printf("error sending chat all\n"); }
+                        }
+                    }
+
+
+                    // Taking a string builder approach. Each sub cmd
+                    // function will build a string and return it here
+
+                    // Commands:
+                    // !all			Send output to all clients
+                    // !admin		Send output to sender
+                    // !help		Send output to sender
+                    // !list		Send output to sender
+                    // !kick		Send output to receiver
+                    // !<username>	Send output to receiver
+                    // Input Not Valid
+
+                    // Parse the first word out of the data.
+                    // Compare the first string to all of the possible commands
+                    // 		If match, pass remaining data to appropriate function
+                    // If it doesn't fit in any of the commands. check usernames table
+                    // If the string doesn't fit a username, set out_str to appropriate err msg.
+
+                    // All incomming data from clients will be interpreted as a command.
+                    //
+                }
+            }
+        }
 
     }
 }
