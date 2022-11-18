@@ -2,9 +2,9 @@ everything = server client
 all: $(everything)
 
 client: client.c
-	clang -Wall -g -lssl -lcrypto -o $@ $^
+	clang -Wall -g -o $@ $^
 
-server: server.c
+server: server.c signal_handler.c
 	clang -Wall -g -o $@ $^
 
 clean:
