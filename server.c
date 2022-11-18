@@ -41,13 +41,21 @@ void clean_up(void) {
             close(i);
         }
     }
+    //todo: getting occasional bind error "address already in use"
+    // if server initiates close while clients are still connected.
+    //  have to wait for system to fully timout until can connect again.
+    //  is there a 'more' proper way to this to avoid that bind error?
+
     /* new connection socket */
     close(listen_fd);
+
     /* just to be safe */
     FD_ZERO(&sockets_to_watch);
 }
 
 bool handshake(int fd) {
+    char buffer_out[BUFFER_SIZE];
+
     /* get username */
     ssize_t rec = recv(fd, clients[fd].name, NAME_SIZE, 0);
     if (rec < 0) {
@@ -72,6 +80,10 @@ bool handshake(int fd) {
                 /* use fd to make unique */
                 sprintf(&clients[fd].name[rec - 1], "%d", fd);
                 printf("new name %s\n", clients[fd].name);
+
+                sprintf(buffer_out, "name already take. new name %s", clients[fd].name);
+                ssize_t sent = send(fd, buffer_out, strlen(buffer_out) + 1, 0);
+                if (-1 == sent) { printf("error sending new name\n"); }
             }
         }
     }
