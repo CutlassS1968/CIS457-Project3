@@ -8,6 +8,8 @@
 #include <stdbool.h>
 #include <stdlib.h>
 
+#include "signal_handler.h"
+
 
 #define NAME_SIZE 128
 #define BUFFER_SIZE 1024
@@ -115,7 +117,7 @@ void list_cmd() {
 int main(int argc, char** argv) {
     int port = 9999;
 
-    /* clean up */
+    install_signal_handler(); /* for safe shutdown */
     atexit(&clean_up); /* clean up no matter how we exit */
 
     // Connection socket
@@ -124,8 +126,8 @@ int main(int argc, char** argv) {
 
     printf("server started...\n");
 
-    // Main loop
-    while (1) { // todo: need safe exit?
+    /* Main loop */
+    while (!exit_program) {
         /* wait for actionable activity on the line */
         fd_set temp_sockets = sockets_to_watch;
         int s = select(FD_SETSIZE, &temp_sockets, NULL, NULL, NULL);
@@ -133,6 +135,7 @@ int main(int argc, char** argv) {
             perror("select()");
             return EXIT_FAILURE;
         }
+        if (exit_program) { continue; }
 
         /* check for new client connection */
         if (FD_ISSET(listen_fd, &temp_sockets)) {
@@ -160,6 +163,7 @@ int main(int argc, char** argv) {
                         perror("recv username");
                         break;
                     }
+                    /* validate user name */
                     for (int e = 0; e < FD_SETSIZE; e++) {
                         if (e != fd && clients[e].active) {
                             /* duplicate name */
@@ -242,4 +246,6 @@ int main(int argc, char** argv) {
         }
 
     }
+
+    return EXIT_SUCCESS;
 }
