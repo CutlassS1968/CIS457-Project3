@@ -83,6 +83,7 @@ int decrypt(unsigned char *ciphertext, int ciphertext_len, unsigned char *key,
   return plaintext_len;
 }
 
+#ifdef TEST
 int main(void){
   unsigned char *pubfilename = "RSApub.pem";
   unsigned char *privfilename = "RSApriv.pem";
@@ -120,3 +121,4 @@ int main(void){
   ERR_free_strings();
   return 0;
 }
+#endif /* TEST */

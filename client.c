@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <termios.h>
+#include "cryptotest.h"
 
 #define NAME_SIZE 128
 #define BUFFER_SIZE 1024

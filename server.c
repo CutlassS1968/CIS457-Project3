@@ -7,9 +7,8 @@
 #include <sys/select.h>
 #include <stdbool.h>
 #include <stdlib.h>
-
 #include "signal_handler.h"
-
+#include "cryptotest.h"
 
 #define NAME_SIZE 128
 #define BUFFER_SIZE 1024
