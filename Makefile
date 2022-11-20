@@ -1,10 +1,10 @@
 everything = server client
 all: $(everything)
 
-client: client.c cryptotest.c
+client: client.c cryptotest.c common.c
 	clang -Wall -g -lssl -lcrypto -o $@ $^
 
-server: server.c signal_handler.c cryptotest.c
+server: server.c signal_handler.c cryptotest.c common.c
 	clang -Wall -g -lssl -lcrypto -o $@ $^
 
 keys:
