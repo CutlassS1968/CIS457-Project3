@@ -42,6 +42,74 @@ int find_user(char* username) {
 EVP_PKEY* pubkey = NULL;
 EVP_PKEY* privkey = NULL;
 
+/* encrypt and send null terminated string */
+ssize_t s_text(int fd, const char* plaintext) {
+    if (NULL == plaintext) {
+        return -1;
+    }
+
+    unsigned char iv[IV_SIZE];
+    char ciphertext[BUFFER_SIZE];
+    ssize_t sent;
+    char buffer_out[BUFFER_SIZE];
+
+    if (NULL == plaintext) {
+        return -1;
+    }
+
+    /* P2 encrypt plaintext */
+    RAND_bytes(iv, IV_SIZE);
+
+    int ciphertext_len = encrypt(
+            (unsigned char*) plaintext, (int) (strlen(plaintext) + 1),
+            clients[fd].key, iv,
+            (unsigned char*) ciphertext);
+    printf("cypher length %d\n", ciphertext_len);
+
+    /* send iv and encrypted text */
+    memcpy(buffer_out, iv, IV_SIZE);
+    memcpy(&buffer_out[IV_SIZE], ciphertext, ciphertext_len);
+
+    /* P2 send our encrypted */
+    sent = send(fd, buffer_out, IV_SIZE + ciphertext_len, 0);
+    if (sent < 0) {
+        perror("send encrypted text");
+    }
+
+    return sent;
+}
+
+/* receive and decrypt a null terminated string */
+ssize_t r_text(int fd, char* plaintext) {
+    if (NULL == plaintext) {
+        return -1;
+    }
+
+    ssize_t rec;
+    char buffer_in[BUFFER_SIZE];
+
+    /* P2 recv users encrypted text */
+    rec = recv(fd, buffer_in, BUFFER_SIZE, 0);
+    if (rec < 0) {
+        perror("recv encrypted text");
+        return rec;
+    }
+    printf("encrypted text length %zd\n", rec);
+
+    if (rec == 0) {
+        return rec;
+    }
+
+    /* P2 decrypt text */
+    int decryptedtext_len = decrypt(
+            (unsigned char*) &buffer_in[IV_SIZE], (int) (rec - IV_SIZE),
+            clients[fd].key, (unsigned char*) &buffer_in[0],
+            (unsigned char*) plaintext);
+    printf("decrypted username length %d\n", decryptedtext_len);
+
+    return decryptedtext_len;
+}
+
 void crypto_init(void) {
     OpenSSL_add_all_algorithms();
 
@@ -93,24 +161,31 @@ bool handshake(int fd) {
     printf("key size %d\n", decryptedkey_len);
 
     /* P2 recv users encrypted username */
-    // unsigned char iv[IV_SIZE];
-    rec = recv(fd, buffer_in, BUFFER_SIZE, 0);
-    if (rec < 0) {
-        perror("recv encrypted username");
+    rec = r_text(fd, buffer_out);
+    if (rec < 0 || rec > NAME_SIZE) {
         return false;
     }
-    printf("username encrypted length %zd\n", rec);
+    printf("decrypted username %s\n", buffer_out);
+    strcpy(clients[fd].name, buffer_out);
 
-    /* P2 decrypt username */
-    int decryptedtext_len = decrypt(
-            (unsigned char*) &buffer_in[IV_SIZE], (int) (rec - IV_SIZE),
-            clients[fd].key, (unsigned char*) &buffer_in[0],
-            (unsigned char*) buffer_out);
-    printf("decrypted username length %d\n", decryptedtext_len);
-    if (decryptedtext_len <= NAME_SIZE) { // zero check
-        printf("decrypted username %s\n", buffer_out);
-        strcpy(clients[fd].name, buffer_out);
-    }
+//    /* P2 recv users encrypted username */
+//    rec = recv(fd, buffer_in, BUFFER_SIZE, 0);
+//    if (rec < 0) {
+//        perror("recv encrypted username");
+//        return false;
+//    }
+//    printf("username encrypted length %zd\n", rec);
+//
+//    /* P2 decrypt username */
+//    int decryptedtext_len = decrypt(
+//            (unsigned char*) &buffer_in[IV_SIZE], (int) (rec - IV_SIZE),
+//            clients[fd].key, (unsigned char*) &buffer_in[0],
+//            (unsigned char*) buffer_out);
+//    printf("decrypted username length %d\n", decryptedtext_len);
+//    if (decryptedtext_len <= NAME_SIZE) { // zero check
+//        printf("decrypted username %s\n", buffer_out);
+//        strcpy(clients[fd].name, buffer_out);
+//    }
 
     /* validate user name */
     for (int e = 0; e < FD_SETSIZE; e++) {
@@ -123,7 +198,8 @@ bool handshake(int fd) {
                 printf("new name %s\n", clients[fd].name);
 
                 sprintf(buffer_out, "name already taken. new name %s", clients[fd].name);
-                sent = send(fd, buffer_out, strlen(buffer_out) + 1, 0);
+                sent = s_text(fd, buffer_out);
+//                sent = send(fd, buffer_out, strlen(buffer_out) + 1, 0);
                 if (-1 == sent) { printf("error sending new name\n"); }
             }
         }
@@ -169,8 +245,8 @@ bool create_listen(int port) {
 
 
 void crypt_cleanup(void) {
-    if (pubkey) EVP_PKEY_free(pubkey);      //not sure if we need to do this
-    if (privkey) EVP_PKEY_free(privkey);    //not sure if we need to do this
+    if (pubkey) { EVP_PKEY_free(pubkey); }      //not sure if we need to do this
+    if (privkey) { EVP_PKEY_free(privkey); }    //not sure if we need to do this
     EVP_cleanup();
 }
 
@@ -218,8 +294,10 @@ char* all_cmd(int fd, char* data) {
         if (clients[e].active && e != fd) {
             /* P2 encrypt with users key */
             /* P2 send encrypted text */
-            ssize_t sent = send(e, buffer_out, strlen(buffer_out) + 1, 0);
+            ssize_t sent = s_text(e, buffer_out);
             if (-1 == sent) { printf("error sending chat all\n"); }
+//            ssize_t sent = send(e, buffer_out, strlen(buffer_out) + 1, 0);
+//            if (-1 == sent) { printf("error sending chat all\n"); }
         }
     }
 
@@ -315,7 +393,8 @@ int main(int argc, char** argv) {
                 memset(buffer_out, 0, sizeof(buffer_out));
 
                 /* theoretically receive some data */
-                ssize_t rec = recv(i, buffer_in, BUFFER_SIZE, 0);
+                ssize_t rec = r_text(i, buffer_in);
+//                ssize_t rec = recv(i, buffer_in, BUFFER_SIZE, 0);
                 if (rec < 0) {
                     perror("recv");
                     break;
@@ -413,7 +492,8 @@ int main(int argc, char** argv) {
                             if (fd != -1 && i != fd) {
                                 /* tag message with username */
                                 sprintf(buffer_out, "%s:%s", clients[i].name, data);
-                                ssize_t sent = send(fd, buffer_out, strlen(buffer_out) + 1, 0);
+                                ssize_t sent = s_text(fd, buffer_out);
+//                                ssize_t sent = send(fd, buffer_out, strlen(buffer_out) + 1, 0);
                                 if (-1 == sent) { printf("error sending chat user\n"); }
                             }
 
@@ -435,7 +515,8 @@ int main(int argc, char** argv) {
                     for (int e = 0; e < FD_SETSIZE; e++) {
                         if (e != i && clients[e].active) {
                             /* P2 encrypt message with users key */
-                            ssize_t sent = send(e, buffer_out, strlen(buffer_out) + 1, 0);
+                            ssize_t sent = s_text(e, buffer_out);
+//                            ssize_t sent = send(e, buffer_out, strlen(buffer_out) + 1, 0);
                             if (-1 == sent) { printf("error sending chat all\n"); }
                         }
                     }

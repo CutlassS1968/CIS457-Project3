@@ -17,7 +17,7 @@ int sockfd = -1;
 
 EVP_PKEY* pubkey = NULL;
 unsigned char key[KEY_SIZE];
-unsigned char iv[IV_SIZE];
+
 
 void crypto_init(void) {
     OpenSSL_add_all_algorithms();
@@ -35,10 +35,78 @@ void crypt_cleanup(void) {
 
 /* Helper Methods */
 
+/* encrypt and send null terminated string */
+ssize_t s_text(const char* plaintext) {
+    unsigned char iv[IV_SIZE];
+    char ciphertext[BUFFER_SIZE];
+    ssize_t sent;
+    char buffer_out[BUFFER_SIZE];
+
+    if (NULL == plaintext) {
+        return -1;
+    }
+
+
+    /* P2 encrypt plaintext */
+    RAND_bytes(iv, IV_SIZE);
+
+    int ciphertext_len = encrypt(
+            (unsigned char*) plaintext, (int) (strlen(plaintext) + 1),
+            key, iv,
+            (unsigned char*) ciphertext);
+    printf("cypher length %d\n", ciphertext_len);
+
+    /* send iv and encrypted text */
+    memcpy(buffer_out, iv, IV_SIZE);
+    memcpy(&buffer_out[IV_SIZE], ciphertext, ciphertext_len);
+
+    /* P2 send our encrypted */
+    sent = send(sockfd, buffer_out, IV_SIZE + ciphertext_len, 0);
+    if (sent < 0) {
+        perror("send encrypted text");
+    }
+
+    return sent;
+}
+
+/* receive and decrypt a null terminated string */
+ssize_t r_text(char* plaintext) {
+    if (NULL == plaintext) {
+        return -1;
+    }
+
+    ssize_t rec;
+    char buffer_in[BUFFER_SIZE];
+
+    /* P2 recv servers encrypted text */
+    rec = recv(sockfd, buffer_in, BUFFER_SIZE, 0);
+    if (rec < 0) {
+        perror("recv encrypted text");
+        return rec;
+    }
+    printf("encrypted text length %zd\n", rec);
+
+    if (rec == 0) {
+        return rec;
+    }
+
+    /* P2 decrypt text */
+    int plaintext_len = decrypt(
+            (unsigned char*) &buffer_in[IV_SIZE], (int) (rec - IV_SIZE),
+            key, (unsigned char*) &buffer_in[0],
+            (unsigned char*) plaintext);
+    printf("plaintext text length %d\n", plaintext_len);
+    printf("plaintext text %s\n", plaintext);
+
+    return plaintext_len;
+}
+
+
+
 /* perform all the necessary connection protocols with server */
 bool handshake(uint16_t portNum,
                char* ipaddr,
-               char* username) {
+               const char* username) {
     if (NULL == ipaddr || NULL == username) {
         return false;
     }
@@ -46,7 +114,7 @@ bool handshake(uint16_t portNum,
     ssize_t sent;
     ssize_t rec;
     char buffer_out[BUFFER_SIZE];
-    char ciphertext[BUFFER_SIZE];
+
 
     /* init */
     struct sockaddr_in serveraddr;
@@ -108,23 +176,33 @@ bool handshake(uint16_t portNum,
     /* P2 do we need and ack for key received? */
 
     /* P2 encrypt username */
-    RAND_bytes(iv, IV_SIZE);
-    int ciphertext_len = encrypt(
-            (unsigned char*) username, (int) (strlen(username) + 1),
-            key, iv,
-            (unsigned char*) ciphertext);
-    printf("cypher length %d\n", ciphertext_len);
-    /* send iv and encrypted text */
-    memcpy(buffer_out, iv, IV_SIZE);
-    memcpy(&buffer_out[IV_SIZE], ciphertext, ciphertext_len);
-
-    /* P2 send our name encrypted with symmetric key */
-    /* send server out username */
-    sent = send(sockfd, buffer_out, IV_SIZE + ciphertext_len, 0);
+    sent = s_text(username);
     if (sent < 0) {
         perror("send encrypted name");
         return false;
     }
+
+
+//    /* P2 encrypt username */
+//    unsigned char iv[IV_SIZE];
+//    char ciphertext[BUFFER_SIZE];
+//    RAND_bytes(iv, IV_SIZE);
+//    int ciphertext_len = encrypt(
+//            (unsigned char*) username, (int) (strlen(username) + 1),
+//            key, iv,
+//            (unsigned char*) ciphertext);
+//    printf("cypher length %d\n", ciphertext_len);
+//    /* send iv and encrypted text */
+//    memcpy(buffer_out, iv, IV_SIZE);
+//    memcpy(&buffer_out[IV_SIZE], ciphertext, ciphertext_len);
+//
+//    /* P2 send our name encrypted with symmetric key */
+//    /* send server out username */
+//    sent = send(sockfd, buffer_out, IV_SIZE + ciphertext_len, 0);
+//    if (sent < 0) {
+//        perror("send encrypted name");
+//        return false;
+//    }
 
     return true;
 }
@@ -247,7 +325,8 @@ int main(int argc, char** argv) {
                 /* send text */
                 /* P2 encrypt text with our key */
                 /* P2 send encrypted text */
-                ssize_t sent = send(sockfd, buffer_out, len + 1, 0);
+                ssize_t sent = s_text(buffer_out);
+//                ssize_t sent = send(sockfd, buffer_out, len + 1, 0);
                 if (sent < 0) {
                     printf("send error\n");
                     return EXIT_FAILURE;
@@ -260,7 +339,8 @@ int main(int argc, char** argv) {
 
         /* check for data from server */
         if (FD_ISSET(sockfd, &fds)) {
-            ssize_t rec = recv(sockfd, buffer_in, BUFFER_SIZE, 0);
+            ssize_t rec = r_text(buffer_in);
+//            ssize_t rec = recv(sockfd, buffer_in, BUFFER_SIZE, 0);
             if (rec < 0) {
                 printf("receive error\n");
                 return EXIT_FAILURE;

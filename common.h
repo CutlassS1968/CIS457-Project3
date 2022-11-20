@@ -10,6 +10,4 @@
 #define NAME_SIZE 128       // max username size
 #define BUFFER_SIZE 1024    // size of send/receive buffers
 
-
-
 #endif //CIS457_PROJECT3_COMMON_H
