@@ -14,7 +14,6 @@
 
 /* remember kids globals are bad. m'kay? */
 int sockfd = -1;
-
 EVP_PKEY* pubkey = NULL;
 unsigned char key[KEY_SIZE];
 
@@ -35,28 +34,19 @@ void crypt_cleanup(void) {
 
 /* Helper Methods */
 
-/* encrypt and send null terminated string */
-ssize_t s_text(const char* plaintext) {
-    return send_encrypted_message(sockfd, key, plaintext);
-}
-
-/* receive and decrypt a null terminated string */
-ssize_t r_text(char* plaintext) {
-    return recv_encrypted_message(sockfd, key, plaintext);
-}
-
-
 
 /* perform all the necessary connection protocols with server */
-bool handshake(uint16_t portNum,
-               char* ipaddr,
-               const char* username) {
+bool handshake(
+        uint16_t portNum,
+        char* ipaddr,
+        const char* username) {
     if (NULL == ipaddr || NULL == username) {
         return false;
     }
 
-    ssize_t sent;
     ssize_t rec;
+    ssize_t sent;
+    char buffer_in[BUFFER_SIZE];
     char buffer_out[BUFFER_SIZE];
 
 
@@ -83,7 +73,6 @@ bool handshake(uint16_t portNum,
     }
 
     /* P2 recv server public key  */
-    char buffer_in[BUFFER_SIZE];
     rec = recv(sockfd, buffer_in, BUFFER_SIZE, 0);
     if (rec < 0) {
         printf("receive error\n");
@@ -99,7 +88,7 @@ bool handshake(uint16_t portNum,
 
     /* P2 convert back to EVP_PKEY format */
     const unsigned char* p = (const unsigned char*) buffer_in;
-    pubkey = d2i_PUBKEY(NULL, (const unsigned char**) &p, rec);
+    pubkey = d2i_PUBKEY(NULL, &p, rec);
     if (NULL == pubkey) {
         printf("public key conversion fail\n");
         return false;
@@ -120,7 +109,7 @@ bool handshake(uint16_t portNum,
     /* P2 do we need and ack for key received? */
 
     /* P2 encrypt username */
-    sent = s_text(username);
+    sent = send_encrypted_message(sockfd, key, username);
     if (sent < 0) {
         perror("send encrypted name");
         return false;
@@ -131,8 +120,10 @@ bool handshake(uint16_t portNum,
 
 
 bool process_commandline_args(
-        int argc, char* argv[], char* address_out,
-        uint16_t* port_out, char* name_out) {
+        int argc, char* argv[],
+        char* address_out,
+        uint16_t* port_out,
+        char* name_out) {
     if (NULL == address_out || NULL == port_out || NULL == name_out) {
         return false;
     }
@@ -244,11 +235,8 @@ int main(int argc, char** argv) {
                     // send "!admin password
                 }
 
-                /* send text */
-                /* P2 encrypt text with our key */
                 /* P2 send encrypted text */
-                ssize_t sent = s_text(buffer_out);
-//                ssize_t sent = send(sockfd, buffer_out, len + 1, 0);
+                ssize_t sent = send_encrypted_message(sockfd, key, buffer_out);
                 if (sent < 0) {
                     printf("send error\n");
                     return EXIT_FAILURE;
@@ -261,8 +249,7 @@ int main(int argc, char** argv) {
 
         /* check for data from server */
         if (FD_ISSET(sockfd, &fds)) {
-            ssize_t rec = r_text(buffer_in);
-//            ssize_t rec = recv(sockfd, buffer_in, BUFFER_SIZE, 0);
+            ssize_t rec = recv_encrypted_message(sockfd, key, buffer_in);
             if (rec < 0) {
                 printf("receive error\n");
                 return EXIT_FAILURE;

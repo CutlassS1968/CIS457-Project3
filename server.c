@@ -38,19 +38,17 @@ int find_user(char* username) {
     return -1;
 }
 
+void end_client(int fd)
+{
+    close(fd);
+    clients[fd].active = false;
+    FD_CLR(fd, &sockets_to_watch);
+    printf("client %d %s has left the chat.\n", fd, clients[fd].name);
+}
+
 
 EVP_PKEY* pubkey = NULL;
 EVP_PKEY* privkey = NULL;
-
-/* encrypt and send null terminated string */
-ssize_t s_text(int fd, const char* plaintext) {
-    return send_encrypted_message(fd, clients[fd].key, plaintext);
-}
-
-/* receive and decrypt a null terminated string */
-ssize_t r_text(int fd, char* plaintext) {
-    return recv_encrypted_message(fd, clients[fd].key, plaintext);
-}
 
 void crypto_init(void) {
     OpenSSL_add_all_algorithms();
@@ -103,7 +101,7 @@ bool handshake(int fd) {
     printf("key size %d\n", decryptedkey_len);
 
     /* P2 recv users encrypted username */
-    rec = r_text(fd, buffer_out);
+    rec = recv_encrypted_message(fd, clients[fd].key, buffer_out);
     if (rec < 0 || rec > NAME_SIZE) {
         return false;
     }
@@ -121,8 +119,7 @@ bool handshake(int fd) {
                 printf("new name %s\n", clients[fd].name);
 
                 sprintf(buffer_out, "name already taken. new name %s", clients[fd].name);
-                sent = s_text(fd, buffer_out);
-//                sent = send(fd, buffer_out, strlen(buffer_out) + 1, 0);
+                sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
                 if (-1 == sent) { printf("error sending new name\n"); }
             }
         }
@@ -217,10 +214,8 @@ char* all_cmd(int fd, char* data) {
         if (clients[e].active && e != fd) {
             /* P2 encrypt with users key */
             /* P2 send encrypted text */
-            ssize_t sent = s_text(e, buffer_out);
+            ssize_t sent = send_encrypted_message(e, clients[e].key, buffer_out);
             if (-1 == sent) { printf("error sending chat all\n"); }
-//            ssize_t sent = send(e, buffer_out, strlen(buffer_out) + 1, 0);
-//            if (-1 == sent) { printf("error sending chat all\n"); }
         }
     }
 
@@ -242,7 +237,7 @@ char* admin_cmd() {
 }
 
 char* kick_cmd(char* username) {
-    //
+    //end_client(fd);
     return NULL;
 }
 
@@ -263,13 +258,9 @@ int main(int argc, char** argv) {
     /* init */
     install_signal_handler(); /* for safe shutdown */
     atexit(&clean_up); /* clean up no matter how we exit */
-    crypto_init();
+    crypto_init(); /* P2 initialize encryption */
 
-    /* P2 initialize encryption protocols stuff */
-    /* P2 load our public and private key from disk */
-
-    // Connection socket
-    // Open connection fd
+    /* Connection socket */
     if (!create_listen(port)) { return EXIT_FAILURE; }
 
     printf("server started...\n");
@@ -316,27 +307,18 @@ int main(int argc, char** argv) {
                 memset(buffer_out, 0, sizeof(buffer_out));
 
                 /* theoretically receive some data */
-                ssize_t rec = r_text(i, buffer_in);
-//                ssize_t rec = recv(i, buffer_in, BUFFER_SIZE, 0);
+                ssize_t rec = recv_encrypted_message(i, clients[i].key, buffer_in);
                 if (rec < 0) {
                     perror("recv");
                     break;
                 }
                 else if (0 == rec) {
                     /* client closed connection */
-                    /* deactivate client () */
-                    // todo: make helper function?
-                    {
-                        close(i);
-                        clients[i].active = false;
-                        FD_CLR(i, &sockets_to_watch);
-                        FD_CLR(i, &temp_sockets); // prob not needed
-                        printf("client %d %s has left the chat.\n", i, clients[i].name);
-                    }
+                    end_client(i);
+                    continue;
                 }
                 else {
                     /* received data */
-                    /* P2 decrypt message with users key */
                     printf("[%d] %s\n", i, buffer_in);
 
                     /* user commands */
@@ -415,8 +397,7 @@ int main(int argc, char** argv) {
                             if (fd != -1 && i != fd) {
                                 /* tag message with username */
                                 sprintf(buffer_out, "%s:%s", clients[i].name, data);
-                                ssize_t sent = s_text(fd, buffer_out);
-//                                ssize_t sent = send(fd, buffer_out, strlen(buffer_out) + 1, 0);
+                                ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
                                 if (-1 == sent) { printf("error sending chat user\n"); }
                             }
 
@@ -438,8 +419,7 @@ int main(int argc, char** argv) {
                     for (int e = 0; e < FD_SETSIZE; e++) {
                         if (e != i && clients[e].active) {
                             /* P2 encrypt message with users key */
-                            ssize_t sent = s_text(e, buffer_out);
-//                            ssize_t sent = send(e, buffer_out, strlen(buffer_out) + 1, 0);
+                            ssize_t sent = send_encrypted_message(e, clients[e].key, buffer_out);
                             if (-1 == sent) { printf("error sending chat all\n"); }
                         }
                     }
