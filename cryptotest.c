@@ -33,7 +33,7 @@ int rsa_encrypt(unsigned char* in, size_t inlen, EVP_PKEY* key, unsigned char* o
     if (EVP_PKEY_encrypt(ctx, out, &outlen, in, inlen) <= 0) {
         handleErrors();
     }
-    return outlen;
+    return (int)outlen;
 }
 
 int rsa_decrypt(unsigned char* in, size_t inlen, EVP_PKEY* key, unsigned char* out) {
@@ -55,7 +55,7 @@ int rsa_decrypt(unsigned char* in, size_t inlen, EVP_PKEY* key, unsigned char* o
     if (EVP_PKEY_decrypt(ctx, out, &outlen, in, inlen) <= 0) {
         handleErrors();
     }
-    return outlen;
+    return (int)outlen;
 }
 
 int encrypt(unsigned char* plaintext, int plaintext_len, unsigned char* key,

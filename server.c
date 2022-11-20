@@ -10,13 +10,14 @@
 #include "signal_handler.h"
 #include "cryptotest.h"
 
+#define IV_SIZE 16
+#define KEY_SIZE 32
 #define NAME_SIZE 128
 #define BUFFER_SIZE 1024
 
+
 /* Structs */
 
-// May need to keep client's port num incase multiple people on same network?
-// Not sure, socket might take care of that for us.
 fd_set sockets_to_watch;
 int listen_fd;
 #define MAX_QUE 10
@@ -25,7 +26,7 @@ typedef struct client {
     bool active;
     char name[NAME_SIZE];
     bool admin;
-    unsigned char key[32];
+    unsigned char key[KEY_SIZE];
 } client;
 client clients[FD_SETSIZE];
 
@@ -47,7 +48,6 @@ EVP_PKEY* pubkey, * privkey;
 void crypto_init(void) {
     OpenSSL_add_all_algorithms();
 
-
     char* pubfilename = "RSApub.pem";
     char* privfilename = "RSApriv.pem";
 
@@ -58,22 +58,6 @@ void crypto_init(void) {
     FILE* privf = fopen(privfilename, "rb");
     privkey = PEM_read_PrivateKey(privf, NULL, NULL, NULL);
     fclose(privf);
-
-
-    // PEM_write_bio_PUBKEY
-    // PEM_read_bio_PUBKEY
-
-    // i2d_PublicKey()
-    // d2i_PublicKey()
-
-    // i2d_PUBKEY()
-//    keylen = i2d_PUBKEY(key, NULL);
-//    p1 = p = (unsigned char *)OPENSSL_malloc(keylen);
-//    keylen = i2d_PUBKEY(key, &p);
-//    pubkey = d2i_PUBKEY(NULL, (const unsigned char**)&p, keylen);
-//    OPENSSL_free(p1);
-
-
 }
 
 /* perform first connection handshake with client */
@@ -100,7 +84,6 @@ bool handshake(int fd) {
     printf("sent key %zd\n", sent);
 
     /* P2 recv users symmetric key */
-    //unsigned char encrypted_key[256];
     rec = recv(fd, buffer_in, BUFFER_SIZE, 0);
     if (rec < 0) {
         perror("recv key");
@@ -109,29 +92,23 @@ bool handshake(int fd) {
     printf("received %zd encrypted data\n", rec);
 
     /* P2 decrypt with our private key */
-    int decryptedkey_len = rsa_decrypt((unsigned char *)buffer_in, rec, privkey, clients[fd].key);
+    int decryptedkey_len = rsa_decrypt((unsigned char*) buffer_in, rec, privkey, clients[fd].key);
     printf("key size %d\n", decryptedkey_len);
 
-//    /* get username */
-//    rec = recv(fd, clients[fd].name, NAME_SIZE, 0);
-//    if (rec < 0) {
-//        perror("recv username");
-//        return false;
-//    }
-
     /* P2 recv users encrypted username */
-    // unsigned char iv[16];
+    // unsigned char iv[IV_SIZE];
     rec = recv(fd, buffer_in, BUFFER_SIZE, 0);
     if (rec < 0) {
         perror("recv encrypted username");
         return false;
     }
+    printf("username encrypted length %zd\n", rec);
 
     /* P2 decrypt username */
     int decryptedtext_len = decrypt(
-            (unsigned char*)&buffer_in[16], (int)(rec-16),
-            clients[fd].key, (unsigned char*)&buffer_in[0],
-            (unsigned char*)buffer_out);
+            (unsigned char*) &buffer_in[IV_SIZE], (int) (rec - IV_SIZE),
+            clients[fd].key, (unsigned char*) &buffer_in[0],
+            (unsigned char*) buffer_out);
     printf("decrypted username length %d\n", decryptedtext_len);
     if (decryptedtext_len <= NAME_SIZE) { // zero check
         printf("decrypted username %s\n", buffer_out);
@@ -145,7 +122,7 @@ bool handshake(int fd) {
             if (strcmp(clients[fd].name, clients[e].name) == 0) {
                 printf("%d and %d are duplicates of %s\n", fd, e, clients[fd].name);
                 /* use fd to make unique */
-                sprintf(&clients[fd].name[rec - 1], "%d", fd);
+                sprintf(&clients[fd].name[strlen(clients[e].name)], "%d", fd);
                 printf("new name %s\n", clients[fd].name);
 
                 sprintf(buffer_out, "name already taken. new name %s", clients[fd].name);
@@ -198,7 +175,6 @@ void crypt_cleanup(void) {
     //EVP_PKEY_free(pubkey);
     //EVP_PKEY_free(privkey);
     // or does EVP_cleanup do this?
-
 
     EVP_cleanup();
 }

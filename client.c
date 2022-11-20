@@ -10,6 +10,8 @@
 #include <termios.h>
 #include "cryptotest.h"
 
+#define IV_SIZE 16
+#define KEY_SIZE 32
 #define NAME_SIZE 128
 #define BUFFER_SIZE 1024
 
@@ -17,25 +19,18 @@
 int sockfd = -1;
 
 EVP_PKEY* pubkey;
-unsigned char key[32];
-unsigned char iv[16];
+unsigned char key[KEY_SIZE];
+unsigned char iv[IV_SIZE];
 
 void crypto_init(void) {
     OpenSSL_add_all_algorithms();
 
     /* session key */
-    RAND_bytes(key, 32);
-
-    // alloc space for public key?
-    //pubkey = EVP_PKEY_new()
+    RAND_bytes(key, KEY_SIZE);
 }
 
 void crypt_cleanup(void) {
-    // free public key?
-    //EVP_PKEY_free(pubkey);
-    // free(pubkey);
-
-
+    //EVP_PKEY_free(pubkey); ?????
     EVP_cleanup();
 }
 
@@ -103,43 +98,36 @@ bool handshake(uint16_t portNum,
     printf("public key received.\n");
 
     /* P2 encrypt our symmetric key with server public key */
-    unsigned char encrypted_key[256];
-    int encryptedkey_len = rsa_encrypt(key, 32, pubkey, encrypted_key);
+    int encryptedkey_len = rsa_encrypt(key, KEY_SIZE, pubkey, (unsigned char *)buffer_out);
+    printf("my key encrypted length %d\n", encryptedkey_len);
 
     /* P2 send server our key */
-    sent = send(sockfd, encrypted_key, encryptedkey_len, 0);
+    sent = send(sockfd, buffer_out, encryptedkey_len, 0);
     if (sent < 0) {
         perror("send key");
         return false;
     }
 
-    /* P2 do we need and ack for key received */
+    /* P2 do we need and ack for key received? */
 
     /* P2 encrypt username */
-    RAND_bytes(iv, 16);
+    RAND_bytes(iv, IV_SIZE);
     int ciphertext_len = encrypt(
             (unsigned char*) username, (int) (strlen(username) + 1),
             key, iv,
             (unsigned char*) ciphertext);
     printf("cypher length %d\n", ciphertext_len);
     /* send iv and encrypted text */
-    memcpy(buffer_out, iv, 16);
-    memcpy(&buffer_out[16], ciphertext, ciphertext_len);
+    memcpy(buffer_out, iv, IV_SIZE);
+    memcpy(&buffer_out[IV_SIZE], ciphertext, ciphertext_len);
 
     /* P2 send our name encrypted with symmetric key */
     /* send server out username */
-    sent = send(sockfd, buffer_out, 16 + ciphertext_len, 0);
+    sent = send(sockfd, buffer_out, IV_SIZE + ciphertext_len, 0);
     if (sent < 0) {
         perror("send encrypted name");
         return false;
     }
-
-//    /* send server out username */
-//    sent = send(sockfd, username, strlen(username) + 1, 0);
-//    if (sent < 0) {
-//        perror("send name");
-//        return false;
-//    }
 
     return true;
 }
@@ -167,21 +155,6 @@ bool process_commandline_args(
     printf("username %s\n", name_out);
 
     return true;
-
-
-//    printf("Enter username: ");
-//    scanf("%s%*c", name_out);
-//    printf("user entered:[%s]\n", name_out);
-//
-//
-//    printf("Enter server IP address: ");
-//    scanf("%s%*c", address_out);
-//
-//
-//    printf("Enter port number: ");
-//    scanf("%hd%*c", port_out);
-
-//    return true;
 }
 
 /* on exit do some cleanup */
@@ -311,5 +284,4 @@ int main(int argc, char** argv) {
         }
     }
 
-    return EXIT_SUCCESS;
 }
