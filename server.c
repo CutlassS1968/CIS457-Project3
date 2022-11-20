@@ -25,51 +25,118 @@ typedef struct client {
     bool active;
     char name[NAME_SIZE];
     bool admin;
-    //unsigned char key[32];
+    unsigned char key[32];
 } client;
 client clients[FD_SETSIZE];
 
-/* this allows us to do cleanup whenever the program exits */
-void clean_up(void) {
-    printf("cleaning up...\n");
-
-    /* close stray data sockets */
-    for (int i = 0; i < FD_SETSIZE; i++) {
-        if (clients[i].active) {
-            printf("closing %d\n", i);
-            close(i);
+/* search user database for name. return their fd */
+int find_user(char* username) {
+    for (int e = 0; e < FD_SETSIZE; e++) {
+        if (clients[e].active) {
+            if (strcmp(username, clients[e].name) == 0) {
+                return e;
+            }
         }
     }
-    //todo: getting occasional bind error "address already in use"
-    // if server initiates close while clients are still connected.
-    //  have to wait for system to fully timout until can connect again.
-    //  is there a 'more' proper way to this to avoid that bind error?
+    return -1;
+}
 
-    /* new connection socket */
-    close(listen_fd);
 
-    /* just to be safe */
-    FD_ZERO(&sockets_to_watch);
+EVP_PKEY* pubkey, * privkey;
+
+void crypto_init(void) {
+    OpenSSL_add_all_algorithms();
+
+
+    char* pubfilename = "RSApub.pem";
+    char* privfilename = "RSApriv.pem";
+
+    FILE* pubf = fopen(pubfilename, "rb");
+    pubkey = PEM_read_PUBKEY(pubf, NULL, NULL, NULL);
+    fclose(pubf);
+
+    FILE* privf = fopen(privfilename, "rb");
+    privkey = PEM_read_PrivateKey(privf, NULL, NULL, NULL);
+    fclose(privf);
+
+
+    // PEM_write_bio_PUBKEY
+    // PEM_read_bio_PUBKEY
+
+    // i2d_PublicKey()
+    // d2i_PublicKey()
+
+    // i2d_PUBKEY()
+//    keylen = i2d_PUBKEY(key, NULL);
+//    p1 = p = (unsigned char *)OPENSSL_malloc(keylen);
+//    keylen = i2d_PUBKEY(key, &p);
+//    pubkey = d2i_PUBKEY(NULL, (const unsigned char**)&p, keylen);
+//    OPENSSL_free(p1);
+
+
 }
 
 /* perform first connection handshake with client */
 bool handshake(int fd) {
     char buffer_out[BUFFER_SIZE];
+    char buffer_in[BUFFER_SIZE];
 
-    /* get username */
-    ssize_t rec = recv(fd, clients[fd].name, NAME_SIZE, 0);
+    ssize_t sent;
+    ssize_t rec;
+
+    /* convert key to sendable data */
+    int len = i2d_PUBKEY(pubkey, NULL); // size of serialization data
+    printf("public keylen %d\n", len);
+    unsigned char* data = malloc(len);
+    unsigned char* p = data; // use copy only. pointer gets modified
+    printf("p %p\n", p);
+    len = i2d_PUBKEY(pubkey, (unsigned char**) &p);
+    printf("p %p\n", p);
+    printf("public keylen %d\n", len);
+
+    /* P2 send user our public key */
+    sent = send(fd, data, len, 0);
+    if (-1 == sent) { printf("error sending public key\n"); }
+    printf("sent key %zd\n", sent);
+
+    /* P2 recv users symmetric key */
+    //unsigned char encrypted_key[256];
+    rec = recv(fd, buffer_in, BUFFER_SIZE, 0);
     if (rec < 0) {
-        perror("recv username");
+        perror("recv key");
+        return false;
+    }
+    printf("received %zd encrypted data\n", rec);
+
+    /* P2 decrypt with our private key */
+    int decryptedkey_len = rsa_decrypt((unsigned char *)buffer_in, rec, privkey, clients[fd].key);
+    printf("key size %d\n", decryptedkey_len);
+
+//    /* get username */
+//    rec = recv(fd, clients[fd].name, NAME_SIZE, 0);
+//    if (rec < 0) {
+//        perror("recv username");
+//        return false;
+//    }
+
+    /* P2 recv users encrypted username */
+    // unsigned char iv[16];
+    rec = recv(fd, buffer_in, BUFFER_SIZE, 0);
+    if (rec < 0) {
+        perror("recv encrypted username");
         return false;
     }
 
-    /* P2 send user our public key */
-
-    /* P2 recv users symmetric key */
-    /* P2 decrypt with our private key */
-
-    /* P2 recv users encrypted username */
     /* P2 decrypt username */
+    int decryptedtext_len = decrypt(
+            (unsigned char*)&buffer_in[16], (int)(rec-16),
+            clients[fd].key, (unsigned char*)&buffer_in[0],
+            (unsigned char*)buffer_out);
+    printf("decrypted username length %d\n", decryptedtext_len);
+    if (decryptedtext_len <= NAME_SIZE) { // zero check
+        printf("decrypted username %s\n", buffer_out);
+        strcpy(clients[fd].name, buffer_out);
+    }
 
     /* validate user name */
     for (int e = 0; e < FD_SETSIZE; e++) {
@@ -82,7 +149,7 @@ bool handshake(int fd) {
                 printf("new name %s\n", clients[fd].name);
 
                 sprintf(buffer_out, "name already taken. new name %s", clients[fd].name);
-                ssize_t sent = send(fd, buffer_out, strlen(buffer_out) + 1, 0);
+                sent = send(fd, buffer_out, strlen(buffer_out) + 1, 0);
                 if (-1 == sent) { printf("error sending new name\n"); }
             }
         }
@@ -126,16 +193,40 @@ bool create_listen(int port) {
     return true;
 }
 
-/* search user database for name. return their fd */
-int find_user(char * username){
-    for (int e = 0; e < FD_SETSIZE; e++) {
-        if (clients[e].active) {
-            if (strcmp(username, clients[e].name) == 0) {
-                return e;
-            }
+
+void crypt_cleanup(void) {
+    //EVP_PKEY_free(pubkey);
+    //EVP_PKEY_free(privkey);
+    // or does EVP_cleanup do this?
+
+
+    EVP_cleanup();
+}
+
+
+/* this allows us to do cleanup whenever the program exits */
+void clean_up(void) {
+    printf("cleaning up...\n");
+
+    /* close stray data sockets */
+    for (int i = 0; i < FD_SETSIZE; i++) {
+        if (clients[i].active) {
+            printf("closing %d\n", i);
+            close(i);
         }
     }
-    return -1;
+    //todo: getting occasional bind error "address already in use"
+    // if server initiates close while clients are still connected.
+    //  have to wait for system to fully timout until can connect again.
+    //  is there a 'more' proper way to this to avoid that bind error?
+
+    /* new connection socket */
+    close(listen_fd);
+
+    /* just to be safe */
+    FD_ZERO(&sockets_to_watch);
+
+    crypt_cleanup();
 }
 
 /* Helper Methods */
@@ -200,6 +291,7 @@ int main(int argc, char** argv) {
     /* init */
     install_signal_handler(); /* for safe shutdown */
     atexit(&clean_up); /* clean up no matter how we exit */
+    crypto_init();
 
     /* P2 initialize encryption protocols stuff */
     /* P2 load our public and private key from disk */
@@ -347,8 +439,7 @@ int main(int argc, char** argv) {
                             /* search usernames */
                             int fd = find_user(&command[1]);
                             /* don't send back to yourself */
-                            if (fd != -1 && i != fd)
-                            {
+                            if (fd != -1 && i != fd) {
                                 /* tag message with username */
                                 sprintf(buffer_out, "%s:%s", clients[i].name, data);
                                 ssize_t sent = send(fd, buffer_out, strlen(buffer_out) + 1, 0);

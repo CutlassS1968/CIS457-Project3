@@ -96,7 +96,7 @@ int decrypt(unsigned char* ciphertext, int ciphertext_len, unsigned char* key,
     return plaintext_len;
 }
 
-#define TEST
+//#define TEST
 #ifdef TEST
 
 int main(void) {
@@ -138,25 +138,31 @@ int main(void) {
 
     free(b);
     // -------------------------------------------------------------------
-    unsigned char encrypted_key[256];
 
+    // encrypt key with public key
+    unsigned char encrypted_key[256];
 //    int encryptedkey_len = rsa_encrypt(key, 32, pubkey, encrypted_key);
     int encryptedkey_len = rsa_encrypt(key, 32, rec_key, encrypted_key);
 
+    // encrypt text with key
     ciphertext_len = encrypt(plaintext, strlen((char*) plaintext), key, iv, ciphertext);
     printf("Ciphertext is:\n");
     BIO_dump_fp(stdout, (const char*) ciphertext, ciphertext_len);
 
+    // decrypt key with private
     FILE* privf = fopen(privfilename, "rb");
     privkey = PEM_read_PrivateKey(privf, NULL, NULL, NULL);
     unsigned char decrypted_key[32];
     int decryptedkey_len = rsa_decrypt(encrypted_key, encryptedkey_len, privkey, decrypted_key);
 
+    // decrypt text with key
     decryptedtext_len = decrypt(ciphertext, ciphertext_len, decrypted_key, iv,
                                 decryptedtext);
     decryptedtext[decryptedtext_len] = '\0';
     printf("Decrypted text is:\n");
     printf("%s\n", decryptedtext);
+
+    // clean up
     EVP_cleanup();
     ERR_free_strings();
     return 0;
