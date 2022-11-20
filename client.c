@@ -8,17 +8,14 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <termios.h>
+#include "common.h"
 #include "cryptotest.h"
 
-#define IV_SIZE 16
-#define KEY_SIZE 32
-#define NAME_SIZE 128
-#define BUFFER_SIZE 1024
 
 /* remember kids globals are bad. m'kay? */
 int sockfd = -1;
 
-EVP_PKEY* pubkey;
+EVP_PKEY* pubkey = NULL;
 unsigned char key[KEY_SIZE];
 unsigned char iv[IV_SIZE];
 
@@ -30,7 +27,7 @@ void crypto_init(void) {
 }
 
 void crypt_cleanup(void) {
-    //EVP_PKEY_free(pubkey); ?????
+    if (pubkey) { EVP_PKEY_free(pubkey); } //not sure if we need to do this
     EVP_cleanup();
 }
 
@@ -98,7 +95,7 @@ bool handshake(uint16_t portNum,
     printf("public key received.\n");
 
     /* P2 encrypt our symmetric key with server public key */
-    int encryptedkey_len = rsa_encrypt(key, KEY_SIZE, pubkey, (unsigned char *)buffer_out);
+    int encryptedkey_len = rsa_encrypt(key, KEY_SIZE, pubkey, (unsigned char*) buffer_out);
     printf("my key encrypted length %d\n", encryptedkey_len);
 
     /* P2 send server our key */

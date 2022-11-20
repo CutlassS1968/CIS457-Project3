@@ -7,13 +7,9 @@
 #include <sys/select.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include "common.h"
 #include "signal_handler.h"
 #include "cryptotest.h"
-
-#define IV_SIZE 16
-#define KEY_SIZE 32
-#define NAME_SIZE 128
-#define BUFFER_SIZE 1024
 
 
 /* Structs */
@@ -43,7 +39,8 @@ int find_user(char* username) {
 }
 
 
-EVP_PKEY* pubkey, * privkey;
+EVP_PKEY* pubkey = NULL;
+EVP_PKEY* privkey = NULL;
 
 void crypto_init(void) {
     OpenSSL_add_all_algorithms();
@@ -172,10 +169,8 @@ bool create_listen(int port) {
 
 
 void crypt_cleanup(void) {
-    //EVP_PKEY_free(pubkey);
-    //EVP_PKEY_free(privkey);
-    // or does EVP_cleanup do this?
-
+    if (pubkey) EVP_PKEY_free(pubkey);      //not sure if we need to do this
+    if (privkey) EVP_PKEY_free(privkey);    //not sure if we need to do this
     EVP_cleanup();
 }
 
