@@ -11,12 +11,20 @@
 #include "signal_handler.h"
 #include "cryptotest.h"
 
+/* maximum number of new clients allowed in new conection queue */
+#define MAX_QUE 10
+
+/* evil globals */
+fd_set sockets_to_watch;
+int listen_fd;
+EVP_PKEY* pubkey = NULL;    /* our asymmetrical public key */
+EVP_PKEY* privkey = NULL;   /* our asymmetrical private key */
 
 /* Structs */
 
-fd_set sockets_to_watch;
-int listen_fd;
-#define MAX_QUE 10
+
+
+/****** clients *******/
 
 typedef struct client {
     bool active;
@@ -27,19 +35,18 @@ typedef struct client {
 client clients[FD_SETSIZE];
 
 /* search user database for name. return their fd */
-int find_user(char* username) {
-    for (int e = 0; e < FD_SETSIZE; e++) {
-        if (clients[e].active) {
-            if (strcmp(username, clients[e].name) == 0) {
-                return e;
+int find_client(char* username) {
+    for (int fd = 0; fd < FD_SETSIZE; fd++) {
+        if (clients[fd].active) {
+            if (strcmp(username, clients[fd].name) == 0) {
+                return fd;
             }
         }
     }
     return -1;
 }
 
-void end_client(int fd)
-{
+void end_client(int fd) {
     close(fd);
     clients[fd].active = false;
     FD_CLR(fd, &sockets_to_watch);
@@ -47,12 +54,13 @@ void end_client(int fd)
 }
 
 
-EVP_PKEY* pubkey = NULL;
-EVP_PKEY* privkey = NULL;
+/****** encryption *******/
 
 void crypto_init(void) {
+    printf("initializing cryptography...\n");
     OpenSSL_add_all_algorithms();
 
+    /* load keys from disk */
     char* pubfilename = "RSApub.pem";
     char* privfilename = "RSApriv.pem";
 
@@ -60,55 +68,122 @@ void crypto_init(void) {
     pubkey = PEM_read_PUBKEY(pubf, NULL, NULL, NULL);
     fclose(pubf);
 
+    //TODO:
+    //  move convert to blob from handshake here
+    //  ??free public key [pubkey] no longer needed?
+
     FILE* privf = fopen(privfilename, "rb");
     privkey = PEM_read_PrivateKey(privf, NULL, NULL, NULL);
     fclose(privf);
 }
 
+void crypt_cleanup(void) {
+    printf("shutting down cryptography...");
+    if (pubkey) { EVP_PKEY_free(pubkey); }      //not sure if we need to do this
+    if (privkey) { EVP_PKEY_free(privkey); }    //not sure if we need to do this
+    EVP_cleanup();
+}
+
+
+/****** network *******/
+
+/* create a listening / new client socket */
+// todo: is there a better name for this funciton?
+bool create_listen(int port) {
+    struct sockaddr_in serveraddr;
+    memset(&serveraddr, 0, sizeof(struct sockaddr_in));
+    serveraddr.sin_family = AF_INET;
+    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serveraddr.sin_port = htons(port);
+
+    printf("creating socket for client requests...\n");
+
+    /* socket for listening */
+    listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (listen_fd < 0) {
+        printf("socket error\n");
+        return false;
+    }
+    FD_SET(listen_fd, &sockets_to_watch);
+    printf("\tsocket created\n");
+
+    int b = bind(listen_fd, (struct sockaddr*) &serveraddr, sizeof(serveraddr));
+    // Address already in use ??? setsockopt with? SO_REUSEADDR, SO_REUSEPORT , SO_LINGER,
+    if (b < 0) {
+        perror("bind");
+        return false;
+    }
+    printf("\tbound\n");
+
+    int l = listen(listen_fd, MAX_QUE);
+    if (l < 0) {
+        printf("listen error\n");
+        return false;
+    }
+    printf("\tlistening\n");
+
+    return true;
+}
+
 /* perform first connection handshake with client */
 bool handshake(int fd) {
+    ssize_t sent;
+    ssize_t rec;
     char buffer_out[BUFFER_SIZE];
     char buffer_in[BUFFER_SIZE];
 
-    ssize_t sent;
-    ssize_t rec;
+    printf("connecting with new client...\n");
 
+    // TODO: move this to crypto_init. only need to convert to a blocb once.
     /* convert key to sendable data */
-    int len = i2d_PUBKEY(pubkey, NULL); // size of serialization data
-    printf("public keylen %d\n", len);
+    int len = i2d_PUBKEY(pubkey, NULL); /* size of serialization data */
     unsigned char* data = malloc(len);
-    unsigned char* p = data; // use copy only. pointer gets modified
-    printf("p %p\n", p);
+    if (NULL == data) {
+        return false;
+    }
+    unsigned char* p = data; /* ALWAYS use copy. pointer gets modified. */
     len = i2d_PUBKEY(pubkey, (unsigned char**) &p);
-    printf("p %p\n", p);
-    printf("public keylen %d\n", len);
+    printf("\tpublic key to data blob\n");
 
-    /* P2 send user our public key */
+    /* send user our public key */
     sent = send(fd, data, len, 0);
-    if (-1 == sent) { printf("error sending public key\n"); }
-    printf("sent key %zd\n", sent);
+    if (-1 == sent) {
+        printf("error sending public key\n");
+        return false;
+    }
+    printf("\tsent client our public key\n");
 
-    /* P2 recv users symmetric key */
+    /* receive users symmetric key (encrypted with our public key) */
     rec = recv(fd, buffer_in, BUFFER_SIZE, 0);
     if (rec < 0) {
         perror("recv key");
         return false;
     }
-    printf("received %zd encrypted data\n", rec);
+    printf("\treceived client's session key\n");
 
-    /* P2 decrypt with our private key */
-    int decryptedkey_len = rsa_decrypt((unsigned char*) buffer_in, rec, privkey, clients[fd].key);
-    printf("key size %d\n", decryptedkey_len);
+    /* decrypt with our private key */
+    int decryptedkey_len = rsa_decrypt(
+            (unsigned char*) buffer_in, rec,
+            privkey,
+            clients[fd].key);
+    /* this variable can be removed.
+     * But for now this kills compiler warnings */
+    (void) decryptedkey_len;
+    printf("\tdecrypted session key\n");
 
-    /* P2 recv users encrypted username */
+    /** from this point on ALL communications are encrypted with user's key **/
+
+    /* receiver users encrypted username */
     rec = recv_encrypted_message(fd, clients[fd].key, buffer_out);
+    printf("recv: %s\n", buffer_out);
     if (rec < 0 || rec > NAME_SIZE) {
         return false;
     }
-    printf("decrypted username %s\n", buffer_out);
-    strcpy(clients[fd].name, buffer_out);
+    strcpy(clients[fd].name, buffer_out); //todo: assingment should be after confiramaiton
+    printf("\treceived username request.\n");
 
     /* validate user name */
+    // TODO: rewrite/simplify using find_client(char* username) function
     for (int e = 0; e < FD_SETSIZE; e++) {
         if (e != fd && clients[e].active) {
             /* duplicate name */
@@ -124,52 +199,21 @@ bool handshake(int fd) {
             }
         }
     }
+    printf("\tvalidated username\n");
+
     clients[fd].active = true;
     FD_SET(fd, &sockets_to_watch);
     printf("client %d %s has joined the chat.\n", fd, clients[fd].name);
 
-    return true;
-}
-
-/* create a listening / new client socket */
-bool create_listen(int port) {
-    struct sockaddr_in serveraddr;
-    memset(&serveraddr, 0, sizeof(struct sockaddr_in));
-    serveraddr.sin_family = AF_INET;
-    serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    serveraddr.sin_port = htons(port);
-
-    /* socket for listening */
-    listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (listen_fd < 0) {
-        printf("socket error\n");
-        return false;
-    }
-    FD_SET(listen_fd, &sockets_to_watch);
-
-    int b = bind(listen_fd, (struct sockaddr*) &serveraddr, sizeof(serveraddr));
-    // Address already in use ??? setsockopt with? SO_REUSEADDR, SO_REUSEPORT , SO_LINGER,
-    if (b < 0) {
-        perror("bind");
-        return false;
-    }
-
-    int l = listen(listen_fd, MAX_QUE);
-    if (l < 0) {
-        printf("listen error\n");
-        return false;
-    }
+    /* send user assigned name */
+    //todo: send user their final username
+    // name:username
 
     return true;
 }
 
 
-void crypt_cleanup(void) {
-    if (pubkey) { EVP_PKEY_free(pubkey); }      //not sure if we need to do this
-    if (privkey) { EVP_PKEY_free(privkey); }    //not sure if we need to do this
-    EVP_cleanup();
-}
-
+/****** general *******/
 
 /* this allows us to do cleanup whenever the program exits */
 void clean_up(void) {
@@ -182,10 +226,11 @@ void clean_up(void) {
             close(i);
         }
     }
-    //todo: getting occasional bind error "address already in use"
-    // if server initiates close while clients are still connected.
-    //  have to wait for system to fully timout until can connect again.
-    //  is there a 'more' proper way to this to avoid that bind error?
+    //todo: getting occasional bind error "address already in use" if
+    // server initiates close while clients are still connected.
+    // you have to wait for system to fully timout (about 90 seconds)
+    // until can connect again.
+    // Is there a 'more' proper way to this to avoid that bind error?
 
     /* new connection socket */
     close(listen_fd);
@@ -196,7 +241,11 @@ void clean_up(void) {
     crypt_cleanup();
 }
 
-/* Helper Methods */
+/* Commands Helper Methods */
+
+// rename  command
+// send new name to client
+// name:<username>
 
 // best guess at how to implement prob s/b differrent
 char* all_cmd(int fd, char* data) {
@@ -212,8 +261,6 @@ char* all_cmd(int fd, char* data) {
     /* find all users that are not sender and send */
     for (int e = 0; e < FD_SETSIZE; e++) {
         if (clients[e].active && e != fd) {
-            /* P2 encrypt with users key */
-            /* P2 send encrypted text */
             ssize_t sent = send_encrypted_message(e, clients[e].key, buffer_out);
             if (-1 == sent) { printf("error sending chat all\n"); }
         }
@@ -230,7 +277,6 @@ char* username_cmd(char* data) {
 
 char* admin_cmd() {
     // TODO: Does !admin mod yourself or someone else?
-
     /* P1 verify password */
     /* P1 set admin=true; */
     return NULL;
@@ -258,7 +304,7 @@ int main(int argc, char** argv) {
     /* init */
     install_signal_handler(); /* for safe shutdown */
     atexit(&clean_up); /* clean up no matter how we exit */
-    crypto_init(); /* P2 initialize encryption */
+    crypto_init(); /* initialize encryption */
 
     /* Connection socket */
     if (!create_listen(port)) { return EXIT_FAILURE; }
@@ -276,7 +322,7 @@ int main(int argc, char** argv) {
         }
         if (exit_program) { continue; }
 
-        /* check for new client connection */
+        /* check for a new client connection */
         if (FD_ISSET(listen_fd, &temp_sockets)) {
             struct sockaddr_in clientaddr;
             socklen_t len = sizeof(struct sockaddr_in);
@@ -298,11 +344,13 @@ int main(int argc, char** argv) {
             }
         }
 
-        /* check active data sockets */
+        /* check for data from a client */
         for (int i = 0; i < FD_SETSIZE; i++) {
             if (FD_ISSET(i, &temp_sockets) && i != listen_fd) {
                 char buffer_in[BUFFER_SIZE];
                 char buffer_out[BUFFER_SIZE];
+
+                /* avoid receiving ghost data */
                 memset(buffer_in, 0, sizeof(buffer_in));
                 memset(buffer_out, 0, sizeof(buffer_out));
 
@@ -317,115 +365,111 @@ int main(int argc, char** argv) {
                     end_client(i);
                     continue;
                 }
-                else {
-                    /* received data */
-                    printf("[%d] %s\n", i, buffer_in);
 
-                    /* user commands */
-                    if (buffer_in[0] == '!') {
-                        printf("received a user command...\n");
+                /* received data */
+                printf("[%d-%s] %s\n", i, clients[i].name, buffer_in);
 
-                        // Taking a string builder approach. Each sub cmd
-                        // function will build a string and return it here
+                /* user commands */
+                if (buffer_in[0] == '!') {
+                    printf("received a user command...\n");
 
-                        // Commands:
-                        // !all			Send output to all clients
-                        // !admin		Send output to sender
-                        // !help		Send output to sender
-                        // !list		Send output to sender
-                        // !kick		Send output to receiver
-                        // !<username>	Send output to receiver
-                        // Input Not Valid
+                    // Taking a string builder approach. Each sub cmd
+                    // function will build a string and return it here
 
-                        // bryan - possible optional command most from spec docs
-                        // !uplift - make another user admin
-                        // !nerf - remove another user admin privileges
-                        // !mute
-                        // !unmute
-                        // !rename OLDNAME NEWNAME
-                        // @rename NEWNAME (self)
-                        // !shuffle - randomly mix everyone's name
-                        // !me - what is my username?
-                        // !reverse USERNAME - make all the user text they send backwards
-                        // !uno USERNAME     - make all the user text they receive backwards
-                        // !deathclock USERNAME TIMEINSECONDS - send user countdown until they get kicked
+                    // Commands:
+                    // !all			Send output to all clients
+                    // !admin		Send output to sender
+                    // !help		Send output to sender
+                    // !list		Send output to sender
+                    // !kick		Send output to receiver
+                    // !<username>	Send output to receiver
+                    // Input Not Valid
 
-
+                    // bryan - possible optional command most from spec docs
+                    // !uplift - make another user admin
+                    // !nerf - remove another user admin privileges
+                    // !mute
+                    // !unmute
+                    // !rename OLDNAME NEWNAME
+                    // @rename NEWNAME (self)
+                    // !shuffle - randomly mix everyone's name
+                    // !me - what is my username?
+                    // !reverse USERNAME - make all the user text they send backwards
+                    // !uno USERNAME     - make all the user text they receive backwards
+                    // !deathclock USERNAME TIMEINSECONDS - send user countdown until they get kicked
 
 
-                        // Parse the first word out of the data.
-                        /* todo: no idea how to do this. using strtok for now */
-                        char* command = strtok(buffer_in, " \n");
-                        // All incoming data from clients will be interpreted as a command.
-                        if (NULL != command) {
-                            char* data = &buffer_in[strlen(command) + 1];
-                            size_t len = strlen(data);
-                            printf("command: %s\n", command);
-                            // make sure buffer_in was zeroed out before recv
-                            // or you will have ghost msg data and a bad day.
-                            printf("msg: %s\n", data);
-                            printf("length: %zu\n", len);
-
-                            // Compare the first string to all of the possible commands
-                            // 		If match, pass remaining data to appropriate function
-
-                            if (strcmp("!admin", command) == 0) {
-                                admin_cmd();
-                            }
-
-                            if (strcmp("!help", command) == 0) {
-                                help_cmd();
-                            }
-
-                            if (strcmp("!all", command) == 0) {
-                                all_cmd(i, data);
-                            }
-
-                            if (strcmp("!list", command) == 0) {
-                                list_cmd();
-                            }
-
-                            if (strcmp("!kick", command) == 0) {
-                                kick_cmd(data);
-                            }
-
-                            // If it doesn't fit in any of the commands. check usernames table
-
-                            /* search usernames */
-                            int fd = find_user(&command[1]);
-                            /* don't send back to yourself */
-                            if (fd != -1 && i != fd) {
-                                /* tag message with username */
-                                sprintf(buffer_out, "%s:%s", clients[i].name, data);
-                                ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
-                                if (-1 == sent) { printf("error sending chat user\n"); }
-                            }
 
 
+                    // Parse the first word out of the data.
+                    /* todo: no idea how to do this. using strtok for now */
+                    char* command = strtok(buffer_in, " \n");
+                    // All incoming data from clients will be interpreted as a command.
+                    if (NULL != command) {
+                        char* data = &buffer_in[strlen(command) + 1];
+                        size_t len = strlen(data);
+                        printf("command: %s\n", command);
+                        // make sure buffer_in was zeroed out before recv
+                        // or you will have ghost msg data and a bad day.
+                        printf("msg: %s\n", data);
+                        printf("length: %zu\n", len);
+
+                        // Compare the first string to all of the possible commands
+                        // 		If match, pass remaining data to appropriate function
+
+                        if (strcmp("!admin", command) == 0) {
+                            admin_cmd();
                         }
 
-                        // If the string doesn't fit a username, set out_str to appropriate err msg.
-                        // send error message?
+                        if (strcmp("!help", command) == 0) {
+                            help_cmd();
+                        }
 
-                        /* bad command drop? */
-                        continue;
-                    }
+                        if (strcmp("!all", command) == 0) {
+                            all_cmd(i, data);
+                        }
 
-                    // todo: old echo server, remove
-                    /* tag message with username */
-                    sprintf(buffer_out, "%s:%s", clients[i].name, buffer_in);
+                        if (strcmp("!list", command) == 0) {
+                            list_cmd();
+                        }
 
-                    /* just echo to everybody for now */
-                    for (int e = 0; e < FD_SETSIZE; e++) {
-                        if (e != i && clients[e].active) {
-                            /* P2 encrypt message with users key */
-                            ssize_t sent = send_encrypted_message(e, clients[e].key, buffer_out);
-                            if (-1 == sent) { printf("error sending chat all\n"); }
+                        if (strcmp("!kick", command) == 0) {
+                            kick_cmd(data);
+                        }
+
+                        // If it doesn't fit in any of the commands. check usernames table
+
+                        /* search usernames */
+                        int fd = find_client(&command[1]);
+                        /* don't send back to yourself */
+                        if (fd != -1 && i != fd) {
+                            /* tag message with username */
+                            sprintf(buffer_out, "%s:%s", clients[i].name, data);
+                            ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
+                            if (-1 == sent) { printf("error sending chat user\n"); }
                         }
                     }
 
+                    // If the string doesn't fit a username, set out_str to appropriate err msg.
+                    /* send error message? */
 
+                    /* bad command drop? */
+                    continue;
                 }
+
+                // todo: remove. old echo server.
+                /* tag message with username */
+                sprintf(buffer_out, "%s:%s", clients[i].name, buffer_in);
+
+                /* just echo to everybody for now */
+                for (int e = 0; e < FD_SETSIZE; e++) {
+                    if (e != i && clients[e].active) {
+                        ssize_t sent = send_encrypted_message(e, clients[e].key, buffer_out);
+                        if (-1 == sent) { printf("error sending chat all\n"); }
+                    }
+                }
+
+
             }
         }
     }

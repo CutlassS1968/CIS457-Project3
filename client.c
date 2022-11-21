@@ -13,12 +13,15 @@
 
 
 /* remember kids globals are bad. m'kay? */
-int sockfd = -1;
-EVP_PKEY* pubkey = NULL;
-unsigned char key[KEY_SIZE];
+int sockfd = -1; /* connection to server */
+EVP_PKEY* pubkey = NULL; /* server's public key */
+unsigned char key[KEY_SIZE]; /* our symmetrical key */
 
+
+/****** encryption *******/
 
 void crypto_init(void) {
+    printf("initializing cryptography...\n");
     OpenSSL_add_all_algorithms();
 
     /* session key */
@@ -26,14 +29,12 @@ void crypto_init(void) {
 }
 
 void crypt_cleanup(void) {
+    printf("shutting down cryptography...");
     if (pubkey) { EVP_PKEY_free(pubkey); } //not sure if we need to do this
     EVP_cleanup();
 }
 
-/* Structs */
-
-/* Helper Methods */
-
+/****** network *******/
 
 /* perform all the necessary connection protocols with server */
 bool handshake(
@@ -49,6 +50,7 @@ bool handshake(
     char buffer_in[BUFFER_SIZE];
     char buffer_out[BUFFER_SIZE];
 
+    printf("connecting to server %s...\n", ipaddr);
 
     /* init */
     struct sockaddr_in serveraddr;
@@ -63,14 +65,16 @@ bool handshake(
         perror("socket");
         return false;
     }
+    printf("\tsocket open\n");
 
     /* connect to server */
     int c = connect(sockfd, (struct sockaddr*) &serveraddr, sizeof(serveraddr));
     if (c < 0) {
         printf("There was a problem connecting to the server\n");
         close(sockfd);
-        return 1;
+        return false;
     }
+    printf("\tconnected\n");
 
     /* P2 recv server public key  */
     rec = recv(sockfd, buffer_in, BUFFER_SIZE, 0);
@@ -83,41 +87,54 @@ bool handshake(
         return false;
         // do something?
     }
+    printf("\treceived public key blob\n");
 
-    /* P2 should we send an ack for public received? */
+    /* P2 should we send an ack for public key received? */
 
-    /* P2 convert back to EVP_PKEY format */
+    /* convert back to EVP_PKEY format */
     const unsigned char* p = (const unsigned char*) buffer_in;
+    /* WARNING!!: p is useless after function.
+     * It will be changed by d2i_PUBKEY!!!
+     * reset if needed again */
     pubkey = d2i_PUBKEY(NULL, &p, rec);
     if (NULL == pubkey) {
         printf("public key conversion fail\n");
         return false;
     }
-    printf("public key received.\n");
+    printf("\treconstituted public key\n");
 
-    /* P2 encrypt our symmetric key with server public key */
+    /* encrypt our symmetric key with server public key */
     int encryptedkey_len = rsa_encrypt(key, KEY_SIZE, pubkey, (unsigned char*) buffer_out);
-    printf("my key encrypted length %d\n", encryptedkey_len);
+    printf("\tencrypted our key\n");
 
-    /* P2 send server our key */
+    /* send server our key */
     sent = send(sockfd, buffer_out, encryptedkey_len, 0);
     if (sent < 0) {
         perror("send key");
         return false;
     }
+    printf("\tsent our key\n");
 
-    /* P2 do we need and ack for key received? */
+    /* P2 do we need to ack key received? */
 
-    /* P2 encrypt username */
+    /** from this point on ALL communications are encrypted with our key **/
+
+    /* send requested username */
     sent = send_encrypted_message(sockfd, key, username);
     if (sent < 0) {
-        perror("send encrypted name");
+        perror("send name");
         return false;
     }
+    printf("sent our name request\n");
+
+    /* receive our assigned name */
+    // todo: add receive for actual name assigned
 
     return true;
 }
 
+
+/****** general *******/
 
 bool process_commandline_args(
         int argc, char* argv[],
@@ -155,10 +172,17 @@ void clean_up(void) {
     crypt_cleanup();
 }
 
+
+/* Structs */
+
+/* Helper Methods */
+
+
+
 /* Main Loop */
 int main(int argc, char** argv) {
     struct timeval tv = {0, 0}; /* dont block */
-    fd_set fds;
+    fd_set fds; /* for select() */
     char buffer_in[BUFFER_SIZE];
     char buffer_out[BUFFER_SIZE];
 
@@ -179,19 +203,18 @@ int main(int argc, char** argv) {
     }
 
 
-    fprintf(stdout, "> ");
+    fprintf(stdout, "%s > ", username);
     fflush(stdout);
     while (1) {
         /* only two fds. just set everytime */
         FD_ZERO(&fds); /* because fd_set hates me */
-        FD_SET(sockfd, &fds); /* receive socket */
+        FD_SET(sockfd, &fds); /* server socket */
         FD_SET(fileno(stdin), &fds); /* stdin */
-        int s = select(FD_SETSIZE, &fds, NULL, NULL, &tv);
+        int s = select(FD_SETSIZE, &fds, NULL, NULL, &tv); /* tv so we don't (lockup) block */
         if (s < 0) {
             printf("select error\n");
             return EXIT_FAILURE;
         }
-
 
         /* check for user input */
         if (FD_ISSET(fileno(stdin), &fds)) {
@@ -202,7 +225,7 @@ int main(int argc, char** argv) {
             len = strlen(buffer_out);
             /* skip empty strings */
             if (len > 0) {
-                /* !exit. duh. */
+                /* exit. duh. */
                 if (strcmp(buffer_out, "!exit") == 0) {
                     return EXIT_SUCCESS;
                 }
@@ -233,17 +256,17 @@ int main(int argc, char** argv) {
                     len = strlen(buffer_out);
 
                     // send "!admin password
+                    // fallthrough for send
                 }
 
-                /* P2 send encrypted text */
+                /* send message blob */
                 ssize_t sent = send_encrypted_message(sockfd, key, buffer_out);
                 if (sent < 0) {
                     printf("send error\n");
                     return EXIT_FAILURE;
                 }
             }
-
-            fprintf(stdout, "> ");
+            fprintf(stdout, "%s > ", username);
             fflush(stdout);
         }
 
@@ -259,6 +282,10 @@ int main(int argc, char** argv) {
                 return EXIT_SUCCESS;
             }
             else {
+                // todo: check for new username notification from server
+                //  and update username variable
+
+
                 // Client has a really simple job:
                 //      Print whatever the server sends it
                 //      Send the server whatever the user inputs

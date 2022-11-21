@@ -1,7 +1,3 @@
-//
-// Created by bryan on 11/20/2022.
-//
-
 #ifndef CIS457_PROJECT3_COMMON_H
 #define CIS457_PROJECT3_COMMON_H
 
