@@ -17,7 +17,6 @@
 /* evil globals */
 fd_set sockets_to_watch;
 int listen_fd;
-EVP_PKEY* pubkey = NULL;    /* our asymmetrical public key */
 EVP_PKEY* privkey = NULL;   /* our asymmetrical private key */
 
 /* Structs */
@@ -59,27 +58,19 @@ void end_client(int fd) {
 void crypto_init(void) {
     printf("initializing cryptography...\n");
     OpenSSL_add_all_algorithms();
+    printf("\tloaded encryption algorithms\n");
 
-    /* load keys from disk */
-    char* pubfilename = "RSApub.pem";
+    /* load our private ke from disk */
     char* privfilename = "RSApriv.pem";
-
-    FILE* pubf = fopen(pubfilename, "rb");
-    pubkey = PEM_read_PUBKEY(pubf, NULL, NULL, NULL);
-    fclose(pubf);
-
-    //TODO:
-    //  move convert to blob from handshake here
-    //  ??free public key [pubkey] no longer needed?
-
     FILE* privf = fopen(privfilename, "rb");
     privkey = PEM_read_PrivateKey(privf, NULL, NULL, NULL);
+    if (!privkey) { printf("error: PEM_read_PrivateKey\n"); }
     fclose(privf);
+    printf("\tloader private key\n");
 }
 
 void crypt_cleanup(void) {
-    printf("shutting down cryptography...");
-    if (pubkey) { EVP_PKEY_free(pubkey); }      //not sure if we need to do this
+    printf("shutting down cryptography...\n");
     if (privkey) { EVP_PKEY_free(privkey); }    //not sure if we need to do this
     EVP_cleanup();
 }
@@ -88,7 +79,7 @@ void crypt_cleanup(void) {
 /****** network *******/
 
 /* create a listening / new client socket */
-// todo: is there a better name for this funciton?
+// todo: is there a better name for this function?
 bool create_listen(int port) {
     struct sockaddr_in serveraddr;
     memset(&serveraddr, 0, sizeof(struct sockaddr_in));
@@ -134,25 +125,6 @@ bool handshake(int fd) {
 
     printf("connecting with new client...\n");
 
-    // TODO: move this to crypto_init. only need to convert to a blocb once.
-    /* convert key to sendable data */
-    int len = i2d_PUBKEY(pubkey, NULL); /* size of serialization data */
-    unsigned char* data = malloc(len);
-    if (NULL == data) {
-        return false;
-    }
-    unsigned char* p = data; /* ALWAYS use copy. pointer gets modified. */
-    len = i2d_PUBKEY(pubkey, (unsigned char**) &p);
-    printf("\tpublic key to data blob\n");
-
-    /* send user our public key */
-    sent = send(fd, data, len, 0);
-    if (-1 == sent) {
-        printf("error sending public key\n");
-        return false;
-    }
-    printf("\tsent client our public key\n");
-
     /* receive users symmetric key (encrypted with our public key) */
     rec = recv(fd, buffer_in, BUFFER_SIZE, 0);
     if (rec < 0) {
@@ -175,12 +147,11 @@ bool handshake(int fd) {
 
     /* receiver users encrypted username */
     rec = recv_encrypted_message(fd, clients[fd].key, buffer_out);
-    printf("recv: %s\n", buffer_out);
+    printf("\treceived username request: [%s]\n", buffer_out);
     if (rec < 0 || rec > NAME_SIZE) {
         return false;
     }
     strcpy(clients[fd].name, buffer_out); //todo: assingment should be after confiramaiton
-    printf("\treceived username request.\n");
 
     /* validate user name */
     // TODO: rewrite/simplify using find_client(char* username) function
@@ -188,14 +159,14 @@ bool handshake(int fd) {
         if (e != fd && clients[e].active) {
             /* duplicate name */
             if (strcmp(clients[fd].name, clients[e].name) == 0) {
-                printf("%d and %d are duplicates of %s\n", fd, e, clients[fd].name);
+                printf("\t%d and %d are duplicates of %s\n", fd, e, clients[fd].name);
                 /* use fd to make unique */
                 sprintf(&clients[fd].name[strlen(clients[e].name)], "%d", fd);
-                printf("new name %s\n", clients[fd].name);
+                printf("\tnew name %s\n", clients[fd].name);
 
-                sprintf(buffer_out, "name already taken. new name %s", clients[fd].name);
-                sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
-                if (-1 == sent) { printf("error sending new name\n"); }
+                //sprintf(buffer_out, "name already taken. new name %s", clients[fd].name);
+                //sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
+                //if (-1 == sent) { printf("error sending new name\n"); }
             }
         }
     }
@@ -206,8 +177,9 @@ bool handshake(int fd) {
     printf("client %d %s has joined the chat.\n", fd, clients[fd].name);
 
     /* send user assigned name */
-    //todo: send user their final username
-    // name:username
+    sprintf(buffer_out, "name:%s", clients[fd].name);
+    sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
+    if (-1 == sent) { printf("error sending new name\n"); }
 
     return true;
 }

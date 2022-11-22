@@ -122,7 +122,7 @@ int main(void) {
 //    int len = i2d_PublicKey(pubkey, NULL);
     printf("public keylen %d\n", len);
     unsigned char* b = malloc(len);
-    unsigned char* p = b; // get modified
+    unsigned char* p = b; // gets modified
     printf("p %p\n", p);
 
     len = i2d_PUBKEY(pubkey, (unsigned char**) &p);
@@ -156,8 +156,7 @@ int main(void) {
     int decryptedkey_len = rsa_decrypt(encrypted_key, encryptedkey_len, privkey, decrypted_key);
 
     // decrypt text with key
-    decryptedtext_len = decrypt(ciphertext, ciphertext_len, decrypted_key, iv,
-                                decryptedtext);
+    decryptedtext_len = decrypt(ciphertext, ciphertext_len, decrypted_key, iv, decryptedtext);
     decryptedtext[decryptedtext_len] = '\0';
     printf("Decrypted text is:\n");
     printf("%s\n", decryptedtext);

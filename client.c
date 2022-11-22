@@ -14,23 +14,39 @@
 
 /* remember kids globals are bad. m'kay? */
 int sockfd = -1; /* connection to server */
-EVP_PKEY* pubkey = NULL; /* server's public key */
 unsigned char key[KEY_SIZE]; /* our symmetrical key */
-
+/* our session key encryted with sever public key */
+int encryptedkey_len;
+unsigned char encrypted_key[BUFFER_SIZE];
 
 /****** encryption *******/
 
 void crypto_init(void) {
     printf("initializing cryptography...\n");
     OpenSSL_add_all_algorithms();
+    printf("\tloaded encryption algorithms\n");
+
+    /* server public key */
+    char* pubfilename = "RSApub.pem";
+    FILE* pubf = fopen(pubfilename, "rb");
+    EVP_PKEY* pubkey = PEM_read_PUBKEY(pubf, NULL, NULL, NULL);
+    if (!pubkey) { printf("error: PEM_read_PUBKEY\n"); }
+    fclose(pubf);
+    printf("\tloader server public key\n");
 
     /* session key */
     RAND_bytes(key, KEY_SIZE);
+    printf("\tinit session key\n");
+
+    /* encrypt our symmetric key with server public key */
+    encryptedkey_len = rsa_encrypt(key, KEY_SIZE, pubkey, encrypted_key);
+    printf("\tencrypted session key: size %d\n", encryptedkey_len);
+
+    if (pubkey) { EVP_PKEY_free(pubkey); } //not sure if we need to do this
 }
 
 void crypt_cleanup(void) {
     printf("shutting down cryptography...");
-    if (pubkey) { EVP_PKEY_free(pubkey); } //not sure if we need to do this
     EVP_cleanup();
 }
 
@@ -40,15 +56,14 @@ void crypt_cleanup(void) {
 bool handshake(
         uint16_t portNum,
         char* ipaddr,
-        const char* username) {
+        char* username) {
     if (NULL == ipaddr || NULL == username) {
         return false;
     }
 
-    ssize_t rec;
     ssize_t sent;
+    ssize_t rec;
     char buffer_in[BUFFER_SIZE];
-    char buffer_out[BUFFER_SIZE];
 
     printf("connecting to server %s...\n", ipaddr);
 
@@ -76,44 +91,14 @@ bool handshake(
     }
     printf("\tconnected\n");
 
-    /* P2 recv server public key  */
-    rec = recv(sockfd, buffer_in, BUFFER_SIZE, 0);
-    if (rec < 0) {
-        printf("receive error\n");
-        return false;
-    }
-    else if (0 == rec) {
-        /* server closed connection */
-        return false;
-        // do something?
-    }
-    printf("\treceived public key blob\n");
-
-    /* P2 should we send an ack for public key received? */
-
-    /* convert back to EVP_PKEY format */
-    const unsigned char* p = (const unsigned char*) buffer_in;
-    /* WARNING!!: p is useless after function.
-     * It will be changed by d2i_PUBKEY!!!
-     * reset if needed again */
-    pubkey = d2i_PUBKEY(NULL, &p, rec);
-    if (NULL == pubkey) {
-        printf("public key conversion fail\n");
-        return false;
-    }
-    printf("\treconstituted public key\n");
-
-    /* encrypt our symmetric key with server public key */
-    int encryptedkey_len = rsa_encrypt(key, KEY_SIZE, pubkey, (unsigned char*) buffer_out);
-    printf("\tencrypted our key\n");
 
     /* send server our key */
-    sent = send(sockfd, buffer_out, encryptedkey_len, 0);
+    sent = send(sockfd, encrypted_key, encryptedkey_len, 0);
     if (sent < 0) {
         perror("send key");
         return false;
     }
-    printf("\tsent our key\n");
+    printf("\tsent session key\n");
 
     /* P2 do we need to ack key received? */
 
@@ -125,10 +110,17 @@ bool handshake(
         perror("send name");
         return false;
     }
-    printf("sent our name request\n");
+    printf("sent name request\n");
 
     /* receive our assigned name */
-    // todo: add receive for actual name assigned
+    rec = recv_encrypted_message(sockfd, key, buffer_in);
+    if (rec < 0) {
+        perror("recv name validation");
+        return false;
+    }
+    if (rec > 5) {
+        strcpy(username, &buffer_in[5]);
+    }
 
     return true;
 }
@@ -144,6 +136,7 @@ bool process_commandline_args(
     if (NULL == address_out || NULL == port_out || NULL == name_out) {
         return false;
     }
+    printf("procesing command line...\n");
 
     if (argc != 4) {
         printf("usage:\n");
@@ -155,9 +148,9 @@ bool process_commandline_args(
     *port_out = atoi(argv[2]);
     strcpy(name_out, argv[3]);
 
-    printf("ip address: %s\n", address_out);
-    printf("port number %hu\n", *port_out);
-    printf("username %s\n", name_out);
+    printf("\tip address: %s\n", address_out);
+    printf("\tport number %hu\n", *port_out);
+    printf("\tusername %s\n", name_out);
 
     return true;
 }

@@ -54,7 +54,6 @@ ssize_t recv_encrypted_message(
 
     /* receive users encrypted blob */
     ssize_t rec = recv(fd, buffer_in, BUFFER_SIZE, 0);
-    printf("encrypted text length %zd\n", rec);
     if (rec < 0) {
         perror("recv encrypted text");
         return rec;
