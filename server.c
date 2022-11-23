@@ -131,7 +131,7 @@ bool handshake(int fd) {
         perror("recv key");
         return false;
     }
-    printf("\treceived client's session key:\n");
+    printf("\treceived client's session key\n");
 
     /* decrypt with our private key */
     int decryptedkey_len = rsa_decrypt(
@@ -173,10 +173,6 @@ bool handshake(int fd) {
                 /* use fd to make unique */
                 sprintf(&clients[fd].name[strlen(clients[e].name)], "%d", fd);
                 printf("\tnew name %s\n", clients[fd].name);
-
-                //sprintf(buffer_out, "name already taken. new name %s", clients[fd].name);
-                //sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
-                //if (-1 == sent) { printf("error sending new name\n"); }
             }
         }
     }

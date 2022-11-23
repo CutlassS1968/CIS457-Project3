@@ -40,7 +40,7 @@ void crypto_init(void) {
 
     /* encrypt our symmetric key with server public key */
     encryptedkey_len = rsa_encrypt(key, KEY_SIZE, pubkey, encrypted_key);
-    printf("\tencrypted session key: size %d\n", encryptedkey_len);
+    printf("\tencrypted session key\n");
 
     if (pubkey) { EVP_PKEY_free(pubkey); } //not sure if we need to do this
 }
@@ -124,7 +124,7 @@ bool handshake(
         perror("send name");
         return false;
     }
-    printf("\nsent name request. size:%zd\n", sent);
+    printf("\nsent name request.\n");
 
     /* receive our assigned name */
     rec = recv_encrypted_message(sockfd, key, buffer_in);
@@ -150,7 +150,7 @@ bool process_commandline_args(
     if (NULL == address_out || NULL == port_out || NULL == name_out) {
         return false;
     }
-    printf("procesing command line...\n");
+    printf("processing command line...\n");
 
     if (argc != 4) {
         printf("usage:\n");
@@ -210,7 +210,7 @@ int main(int argc, char** argv) {
     }
 
 
-    fprintf(stdout, "%s > ", username);
+    printf("%s > ", username);
     fflush(stdout);
     while (1) {
         /* only two fds. just set everytime */
@@ -273,7 +273,7 @@ int main(int argc, char** argv) {
                     return EXIT_FAILURE;
                 }
             }
-            fprintf(stdout, "%s > ", username);
+            printf("%s > ", username);
             fflush(stdout);
         }
 
