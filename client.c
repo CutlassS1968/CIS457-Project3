@@ -17,7 +17,7 @@ int sockfd = -1; /* connection to server */
 unsigned char key[KEY_SIZE]; /* our symmetrical key */
 /* our session key encryted with sever public key */
 int encryptedkey_len;
-unsigned char encrypted_key[BUFFER_SIZE];
+unsigned char encrypted_key[256];
 
 /****** encryption *******/
 
@@ -46,7 +46,7 @@ void crypto_init(void) {
 }
 
 void crypt_cleanup(void) {
-    printf("shutting down cryptography...");
+    printf("shutting down cryptography...\n");
     EVP_cleanup();
 }
 
@@ -98,11 +98,25 @@ bool handshake(
         perror("send key");
         return false;
     }
-    printf("\tsent session key\n");
+    printf("\tsent session key.\n");
 
-    /* P2 do we need to ack key received? */
+    /*******************************************************************
+     from this point on ALL communications are encrypted with our key
+     ******************************************************************/
 
-    /** from this point on ALL communications are encrypted with our key **/
+    /* P2 do we need to ack key received? yes, apparently. */
+    /* OS is occasionally combining the previous and next send into one
+     * packet. Which is giving rsa_decrypt kvetches.
+     * Not the only solution, but doing ACK to break up the sends.
+     */
+
+    /* receive ACK */
+    rec = recv_encrypted_message(sockfd, key, buffer_in);
+    if (rec <= 0 || strcmp(buffer_in, ACK) != 0) {
+        perror("recv ACK");
+        return false;
+    }
+    printf("\tsession key ACK'd\n");
 
     /* send requested username */
     sent = send_encrypted_message(sockfd, key, username);
@@ -110,7 +124,7 @@ bool handshake(
         perror("send name");
         return false;
     }
-    printf("sent name request\n");
+    printf("\nsent name request. size:%zd\n", sent);
 
     /* receive our assigned name */
     rec = recv_encrypted_message(sockfd, key, buffer_in);

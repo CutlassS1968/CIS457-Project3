@@ -5,6 +5,7 @@
 #define KEY_SIZE 32         // size of client symmetrical key
 #define NAME_SIZE 128       // max username size
 #define BUFFER_SIZE 1024    // size of send/receive buffers
+#define ACK "COOL MAN"
 
 ssize_t send_encrypted_message(int fd, unsigned char* key, const char* plaintext);
 ssize_t recv_encrypted_message(int fd, unsigned char* key, char* plaintext);

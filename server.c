@@ -131,7 +131,7 @@ bool handshake(int fd) {
         perror("recv key");
         return false;
     }
-    printf("\treceived client's session key\n");
+    printf("\treceived client's session key:\n");
 
     /* decrypt with our private key */
     int decryptedkey_len = rsa_decrypt(
@@ -143,7 +143,14 @@ bool handshake(int fd) {
     (void) decryptedkey_len;
     printf("\tdecrypted session key\n");
 
-    /** from this point on ALL communications are encrypted with user's key **/
+    /*******************************************************************
+    from this point on ALL communications are encrypted with user's key
+    ******************************************************************/
+
+    /* ACK session key */
+    sent = send_encrypted_message(fd, clients[fd].key, ACK);
+    if (-1 == sent) { printf("error sending session key ACK\n"); }
+    printf("\tACK session key\n");
 
     /* receiver users encrypted username */
     rec = recv_encrypted_message(fd, clients[fd].key, buffer_out);
@@ -151,12 +158,15 @@ bool handshake(int fd) {
     if (rec < 0 || rec > NAME_SIZE) {
         return false;
     }
-    strcpy(clients[fd].name, buffer_out); //todo: assingment should be after confiramaiton
+    strcpy(clients[fd].name, buffer_out); //todo: assignment should be after confirmation
 
     /* validate user name */
+    // todo: probably should be moved to it's own function
     // TODO: rewrite/simplify using find_client(char* username) function
     for (int e = 0; e < FD_SETSIZE; e++) {
         if (e != fd && clients[e].active) {
+            // todo: validate against command keyword list also.
+
             /* duplicate name */
             if (strcmp(clients[fd].name, clients[e].name) == 0) {
                 printf("\t%d and %d are duplicates of %s\n", fd, e, clients[fd].name);
@@ -176,7 +186,7 @@ bool handshake(int fd) {
     FD_SET(fd, &sockets_to_watch);
     printf("client %d %s has joined the chat.\n", fd, clients[fd].name);
 
-    /* send user assigned name */
+    /* send user their assigned name */
     sprintf(buffer_out, "name:%s", clients[fd].name);
     sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
     if (-1 == sent) { printf("error sending new name\n"); }
