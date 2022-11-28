@@ -299,6 +299,10 @@ int main(int argc, char** argv) {
                 // That's basically it.
                 /* P2 decrypt text with our key */
                 /* P2 print decrypted text */
+
+                // Only solution I can think of right now is to have the server end every outgoing message with
+                // the receiver's new line.
+                // Just tried that and that didn't work either :|
                 printf("%s\n", buffer_in);
             }
         }
