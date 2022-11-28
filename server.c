@@ -18,10 +18,7 @@
 fd_set sockets_to_watch;
 int listen_fd;
 EVP_PKEY* privkey = NULL;   /* our asymmetrical private key */
-
-/* Structs */
-
-
+char admin_password[] = "hardcoded";
 
 /****** clients *******/
 
@@ -249,11 +246,8 @@ void admin_cmd(int fd, char* password) {
     char buffer_out[BUFFER_SIZE];
     memset(buffer_out, 0, sizeof(buffer_out));
 
-    char* admin_password = "admin";
-    int comp = strcmp(admin_password, password);
-
     /* P1 verify password */
-    if (comp == 0) {
+    if (strcmp(admin_password, password) == 0) {
         /* P1 set admin=true; */
         sprintf(buffer_out, "Password validated, admin privileges granted");
         printf("Admin privileges granted to user %s\n", clients[fd].name);
@@ -300,6 +294,68 @@ void promote_cmd(int fd, char* username) {
     }
 }
 
+void demote_cmd(int fd, char* username) {
+    char buffer_out[BUFFER_SIZE];
+    memset(buffer_out, 0, sizeof(buffer_out));
+
+    /* Check admin privileges */
+    if (clients[fd].admin) {
+        ssize_t sent;
+        /* Find user being demoted and notify them */
+        int user_fd = find_client(username);
+        if (-1 == user_fd) {
+            /* Cant find user, send error message to caller */
+            printf("error demoting user %s, user does not exist\n", username);
+            sprintf(buffer_out, "error demoting user %s, user does not exist", username);
+            sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
+            if (-1 == sent) { printf("error sending demotion error to %s\n", clients[fd].name); }
+        } else {
+            /* Build message for user being demoted */
+            printf("user %s has been demoted\n", username);
+            sprintf(buffer_out, "You have been demoted and no longer have admin privileges!");
+            sent = send_encrypted_message(user_fd, clients[user_fd].key, buffer_out);
+            if (-1 == sent) { printf("error sending demotion notification to %s\n", clients[user_fd].name); }
+            clients[user_fd].admin = false;
+        }
+    } else {
+        /* User does not have admin privileges */
+        printf("user %s cannot demote user %s due to lack of admin privileges\n", clients[fd].name, username);
+        sprintf(buffer_out, "You do not have admin privileges");
+        ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
+        if (-1 == sent) { printf("error sending invalid admin privileges to %s\n", clients[fd].name); }
+    }
+}
+
+// TODO: Not shutting down properly, Not sure how else to shutdown except for setting exit_program = true
+bool shutdown_cmd(int fd) {
+    /* Check admin privileges */
+    if (clients[fd].admin) {
+        /* Disconnect each user from the server */
+        for (int i = 0; i < FD_SETSIZE; i++) {
+            if (clients[i].active) {
+                char buffer_out[BUFFER_SIZE];
+                memset(buffer_out, 0, sizeof(buffer_out));
+                printf("Sending shutdown message to user %s\n", clients[i].name);
+                sprintf(buffer_out, "Server is shutting down...");
+                ssize_t sent = send_encrypted_message(i, clients[i].key, buffer_out);
+                if (-1 == sent) { printf("error sending shutdown notification to %s\n", clients[i].name); }
+                end_client(i);
+            }
+        }
+        /* Close the server */
+        return true;
+    } else {
+        char buffer_out[BUFFER_SIZE];
+        memset(buffer_out, 0, sizeof(buffer_out));
+        /* User does not have admin privileges */
+        printf("user %s cannot shutdown server due to lack of admin privileges", clients[fd].name);
+        sprintf(buffer_out, "You do not have admin privileges");
+        ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
+        if (-1 == sent) { printf("error sending invalid admin privileges to %s\n", clients[fd].name); }
+    }
+    return false;
+}
+
 void kick_cmd(int fd, char* username) {
     char buffer_out[BUFFER_SIZE];
     memset(buffer_out, 0, sizeof(buffer_out));
@@ -328,34 +384,46 @@ void kick_cmd(int fd, char* username) {
         printf("user %s cannot kick user %s due to lack of admin privileges", username, clients[fd].name);
         sprintf(buffer_out, "You do not have admin privileges");
         ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
-        if (-1 == sent) { printf("error sending kick to %s\n", clients[fd].name); }
+        if (-1 == sent) { printf("error sending invalid admin privileges to %s\n", clients[fd].name); }
     }
 }
 
 void help_cmd(int fd) {
-    // Build string that shows all commands and their functions
-    
     char buffer_out[BUFFER_SIZE];
     memset(buffer_out, 0, sizeof(buffer_out));
 
-    /* tag message with username */
-    sprintf(buffer_out, "\n"
-                        "\tAll Commands:\n"
-                        "\t\t!help\t\t\tList all commands\n"
-                        "\t\t!<username> <message>\tSend a message directly to a specific user\n"
-                        "\t\t!all <message>\t\tSend a message to all users\n"
-                        "\t\t!list\t\t\tList all users online\n"
-                        "\t\t!admin\t\t\tMakes yourself an admin (password protected)\n"
-                        "\t\t!promote <username>\tPromotes another user to admin\n"
-                        "\t\t!kick <username>\tKicks a given user from the server\n"
-                        "\t\t!exit\t\t\tCloses the program");
-    
-    ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
-    if (-1 == sent) { printf("error sending chat !help to %s\n", clients[fd].name); }
+    if (clients[fd].admin) {
+        /* Send normal and admin commands */
+        sprintf(buffer_out, "\n"
+                            "\tCommands:\n"
+                            "\t\t!help\t\t\tList all commands\n"
+                            "\t\t!<username> <message>\tSend a message directly to a specific user\n"
+                            "\t\t!all <message>\t\tSend a message to all users\n"
+                            "\t\t!list\t\t\tList all users online\n"
+                            "\t\t!admin\t\t\tMakes yourself an admin (password protected)\n"
+                            "\tAdmin Commands:\n"
+                            "\t\t!promote <username>\tPromotes another user to admin\n"
+                            "\t\t!shutdown\t\tShuts down the server\n"
+                            "\t\t!demote <username>\tDemotes another user from admin\n"
+                            "\t\t!kick <username>\tKicks a given user from the server\n"
+                            "\t\t!exit\t\t\tCloses the program");
+        ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
+        if (-1 == sent) { printf("error sending chat !help to %s\n", clients[fd].name); }
+    } else {
+        /* Send normal commands */
+        sprintf(buffer_out, "\n"
+                            "\tCommands:\n"
+                            "\t\t!help\t\t\tList all commands\n"
+                            "\t\t!<username> <message>\tSend a message directly to a specific user\n"
+                            "\t\t!all <message>\t\tSend a message to all users\n"
+                            "\t\t!exit\t\t\tCloses the program");
+
+        ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
+        if (-1 == sent) { printf("error sending chat !help to %s\n", clients[fd].name); }
+    }
 }
 
 void list_cmd(int fd) {
-
     char buffer_out[BUFFER_SIZE];
     memset(buffer_out, 0, sizeof(buffer_out));
 
@@ -370,7 +438,6 @@ void list_cmd(int fd) {
         if (clients[i].active) {
             sprintf(buffer_out + strlen(buffer_out), "\t\t%s\n", clients[i].name);
         }
-
     }
 
     ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
@@ -466,7 +533,7 @@ int main(int argc, char** argv) {
                     // !reverse USERNAME - make all the user text they send backwards
                     // !uno USERNAME     - make all the user text they receive backwards
                     // !deathclock USERNAME TIMEINSECONDS - send user countdown until they get kicked
-                    
+
                     // Parse the first word out of the data.
                     /* todo: no idea how to do this. using strtok for now */
                     char* command = strtok(buffer_in, " \n");
@@ -490,6 +557,18 @@ int main(int argc, char** argv) {
 
                         if (strcmp("!promote", command) == 0) {
                             promote_cmd(i, data);
+                            continue;
+                        }
+
+                        if (strcmp("!demote", command) == 0) {
+                            demote_cmd(i, data);
+                            continue;
+                        }
+
+                        if (strcmp("!shutdown", command) == 0) {
+                            if (shutdown_cmd(i)) {
+                                exit_program = true;
+                            }
                             continue;
                         }
 
