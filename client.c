@@ -179,13 +179,6 @@ void clean_up(void) {
     crypt_cleanup();
 }
 
-
-/* Structs */
-
-/* Helper Methods */
-
-
-
 /* Main Loop */
 int main(int argc, char** argv) {
     struct timeval tv = {0, 0}; /* dont block */
@@ -257,13 +250,11 @@ int main(int argc, char** argv) {
                     term.c_lflag |= ECHO;
                     tcsetattr(fileno(stdin), 0, &term);
 
-                    printf("\nYour password is: %s\n", passwd);
-
                     sprintf(buffer_out, "%s %s", buffer_out, passwd);
-                    len = strlen(buffer_out);
 
                     // send "!admin password
                     // fallthrough for send
+                    printf("\n");
                 }
 
                 /* send message blob */
@@ -292,17 +283,12 @@ int main(int argc, char** argv) {
                 // todo: check for new username notification from server
                 //  and update username variable
 
-
                 // Client has a really simple job:
                 //      Print whatever the server sends it
                 //      Send the server whatever the user inputs
                 // That's basically it.
                 /* P2 decrypt text with our key */
                 /* P2 print decrypted text */
-
-                // Only solution I can think of right now is to have the server end every outgoing message with
-                // the receiver's new line.
-                // Just tried that and that didn't work either :|
                 printf("%s\n", buffer_in);
             }
         }
