@@ -202,7 +202,7 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-
+    printf("!help for help\n.");
     printf("%s > ", username);
     fflush(stdout);
     while (1) {

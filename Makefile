@@ -15,4 +15,4 @@ test: cryptotest.c
 	clang -DTEST -g -lssl -lcrypto -o $@ $^
 
 clean:
-	 rm $(everything) test
+	 rm $(everything)
