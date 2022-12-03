@@ -1,3 +1,16 @@
+/****************************************************
+ *                  Project 3
+ *                 CIS 457  03
+ *
+ * Bryan Vandyke
+ *  email: vandybry@mail.gvsu.edu
+ *  email: bryan.vandyke@gmail.com
+ *
+ * Evan Johns
+ *  email: johnsev@mail.gvsu.edu
+ *  email: evanlloydjohns@gmail.com
+ ****************************************************/
+
 #include <stdio.h>
 #include <sys/socket.h>
 #include "common.h"

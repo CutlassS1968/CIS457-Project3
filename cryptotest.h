@@ -1,7 +1,3 @@
-//
-// Created by bryan on 11/18/2022.
-//
-
 #ifndef P3_CRYPTOTEST_H
 #define P3_CRYPTOTEST_H
 
