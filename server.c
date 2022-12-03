@@ -1,6 +1,5 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <arpa/inet.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -11,7 +10,7 @@
 #include "signal_handler.h"
 #include "cryptotest.h"
 
-/* maximum number of new clients allowed in new conection queue */
+/* maximum number of new clients allowed in new connection queue */
 #define MAX_QUE 10
 
 /* evil globals */
@@ -42,6 +41,7 @@ int find_client(char* username) {
     return -1;
 }
 
+/* close client connection and clean up */
 void end_client(int fd) {
     close(fd);
     clients[fd].active = false;
@@ -57,7 +57,7 @@ void crypto_init(void) {
     OpenSSL_add_all_algorithms();
     printf("\tloaded encryption algorithms\n");
 
-    /* load our private ke from disk */
+    /* load our private key from disk */
     char* privfilename = "RSApriv.pem";
     FILE* privf = fopen(privfilename, "rb");
     privkey = PEM_read_PrivateKey(privf, NULL, NULL, NULL);
@@ -66,6 +66,7 @@ void crypto_init(void) {
     printf("\tloader private key\n");
 }
 
+/* code to clean up crypto on shutdown */
 void crypt_cleanup(void) {
     printf("shutting down cryptography...\n");
     if (privkey) { EVP_PKEY_free(privkey); }    //not sure if we need to do this
@@ -76,7 +77,6 @@ void crypt_cleanup(void) {
 /****** network *******/
 
 /* create a listening / new client socket */
-// todo: is there a better name for this function?
 bool create_listen(int port) {
     struct sockaddr_in serveraddr;
     memset(&serveraddr, 0, sizeof(struct sockaddr_in));
@@ -95,6 +95,7 @@ bool create_listen(int port) {
     FD_SET(listen_fd, &sockets_to_watch);
     printf("\tsocket created\n");
 
+    /* bind socket to an address and port */
     int b = bind(listen_fd, (struct sockaddr*) &serveraddr, sizeof(serveraddr));
     // Address already in use ??? setsockopt with? SO_REUSEADDR, SO_REUSEPORT , SO_LINGER,
     if (b < 0) {
@@ -103,6 +104,7 @@ bool create_listen(int port) {
     }
     printf("\tbound\n");
 
+    /* start listening on socket. */
     int l = listen(listen_fd, MAX_QUE);
     if (l < 0) {
         printf("listen error\n");
@@ -113,7 +115,7 @@ bool create_listen(int port) {
     return true;
 }
 
-/* perform first connection handshake with client */
+/* perform connection handshake with new client */
 bool handshake(int fd) {
     ssize_t sent;
     ssize_t rec;
@@ -137,6 +139,7 @@ bool handshake(int fd) {
             clients[fd].key);
     /* this variable can be removed.
      * But for now this kills compiler warnings */
+    // may want to compare to KEY_SIZE
     (void) decryptedkey_len;
     printf("\tdecrypted session key\n");
 
@@ -155,15 +158,13 @@ bool handshake(int fd) {
     if (rec < 0 || rec > NAME_SIZE) {
         return false;
     }
-    strcpy(clients[fd].name, buffer_out); //todo: assignment should be after confirmation
+    strcpy(clients[fd].name, buffer_out);
 
     /* validate user name */
     // todo: probably should be moved to it's own function
     // TODO: rewrite/simplify using find_client(char* username) function
     for (int e = 0; e < FD_SETSIZE; e++) {
         if (e != fd && clients[e].active) {
-            // todo: validate against command keyword list also.
-
             /* duplicate name */
             if (strcmp(clients[fd].name, clients[e].name) == 0) {
                 printf("\t%d and %d are duplicates of %s\n", fd, e, clients[fd].name);
@@ -173,6 +174,8 @@ bool handshake(int fd) {
             }
         }
     }
+    // todo: validate against command keyword list also.
+
     printf("\tvalidated username\n");
 
     clients[fd].active = true;
@@ -218,15 +221,8 @@ void clean_up(void) {
 
 /* Commands Helper Methods */
 
-// rename  command
-// send new name to client
-// name:<username>
-
-// best guess at how to implement prob s/b different
+/* send message to all active client except sender */
 void all_cmd(int fd, char* data) {
-    // take data and build string to send to all clients
-    // [<sender_username>]: <data>
-
     char buffer_out[BUFFER_SIZE];
     memset(buffer_out, 0, sizeof(buffer_out));
 
@@ -242,13 +238,13 @@ void all_cmd(int fd, char* data) {
     }
 }
 
+/* process clients request to be an administrator */
 void admin_cmd(int fd, char* password) {
     char buffer_out[BUFFER_SIZE];
     memset(buffer_out, 0, sizeof(buffer_out));
 
-    /* P1 verify password */
+    /* verify unguessable password */
     if (strcmp(admin_password, password) == 0) {
-        /* P1 set admin=true; */
         sprintf(buffer_out, "Password validated, admin privileges granted");
         printf("Admin privileges granted to user %s\n", clients[fd].name);
         clients[fd].admin = true;
@@ -263,6 +259,8 @@ void admin_cmd(int fd, char* password) {
     if (-1 == sent) { printf("error sending admin result to %s\n", clients[fd].name); }
 }
 
+/* promote another client to admin.
+ * requires admin privileges. */
 void promote_cmd(int fd, char* username) {
     char buffer_out[BUFFER_SIZE];
     memset(buffer_out, 0, sizeof(buffer_out));
@@ -297,6 +295,7 @@ void promote_cmd(int fd, char* username) {
     }
 }
 
+/* strip another client of admin privileges. */
 void demote_cmd(int fd, char* username) {
     char buffer_out[BUFFER_SIZE];
     memset(buffer_out, 0, sizeof(buffer_out));
@@ -331,7 +330,6 @@ void demote_cmd(int fd, char* username) {
     }
 }
 
-// TODO: Not shutting down properly, Not sure how else to shutdown except for setting exit_program = true
 bool shutdown_cmd(int fd) {
     /* Check admin privileges */
     if (clients[fd].admin) {
@@ -348,6 +346,7 @@ bool shutdown_cmd(int fd) {
             }
         }
         /* Close the server */
+        exit_program = true;
         return true;
     }
     else {
@@ -400,55 +399,46 @@ void help_cmd(int fd) {
     char buffer_out[BUFFER_SIZE];
     memset(buffer_out, 0, sizeof(buffer_out));
 
-    if (clients[fd].admin) {
-        /* Send normal and admin commands */
-        sprintf(buffer_out, "\n"
-                            "\tCommands:\n"
-                            "\t\t!help\t\t\tList all commands\n"
-                            "\t\t!<username> <message>\tSend a message directly to a specific user\n"
-                            "\t\t!all <message>\t\tSend a message to all users\n"
-                            "\t\t!list\t\t\tList all users online\n"
-                            "\t\t!admin\t\t\tMakes yourself an admin (password protected)\n"
-                            "\t\t!exit\t\t\tCloses the program\n"
-                            "\tAdmin Commands:\n"
-                            "\t\t!promote <username>\tPromotes another user to admin\n"
-                            "\t\t!shutdown\t\tShuts down the server\n"
-                            "\t\t!demote <username>\tDemotes another user from admin\n"
-                            "\t\t!kick <username>\tKicks a given user from the server\n"
-                            );
-        ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
-        if (-1 == sent) { printf("error sending chat !help to %s\n", clients[fd].name); }
-    }
-    else {
-        /* Send normal commands */
-        sprintf(buffer_out, "\n"
-                            "\tCommands:\n"
-                            "\t\t!help\t\t\tList all commands\n"
-                            "\t\t!<username> <message>\tSend a message directly to a specific user\n"
-                            "\t\t!all <message>\t\tSend a message to all users\n"
-                            "\t\t!admin\t\t\tMakes yourself an admin (password protected)\n"
-                            "\t\t!exit\t\t\tCloses the program\n"
-        );
+    char commands[] =
+            "\n"
+            "Commands:\n"
+            "\t!help\t\t\tList all commands\n"
+            "\t!<username> <message>\tSend a message directly to a specific user\n"
+            "\t!all <message>\t\tSend a message to all users\n"
+            "\t!list\t\t\tList all users online\n"
+            "\t!admin\t\t\tMakes yourself an admin (password protected)\n"
+            "\t!exit\t\t\tCloses the program\n"
+            "";
 
-        ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
-        if (-1 == sent) { printf("error sending chat !help to %s\n", clients[fd].name); }
+    char admin_commands[] =
+            "Admin Commands:\n"
+            "\t!kick <username>\tKicks a given user from the server\n"
+            "\t!promote <username>\tPromotes another user to admin\n"
+            "\t!demote <username>\tDemotes another user from admin\n"
+            "\t!shutdown\t\tShuts down the server\n"
+            "";
+
+    /* user commands */
+    strcpy(buffer_out, commands);
+
+    /* send admin command also */
+    if (clients[fd].admin) {
+        strcat(buffer_out, admin_commands);
     }
+
+    ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
+    if (-1 == sent) { printf("error sending chat !help to %s\n", clients[fd].name); }
 }
 
 void list_cmd(int fd) {
-    char buffer_out[BUFFER_SIZE];
-    memset(buffer_out, 0, sizeof(buffer_out));
-
-    char header[20];
-    memset(header, 0, sizeof(header));
-    strcpy(header, "\n"
-                   "\tActive Users:\n");
-
-    sprintf(buffer_out, "%s", header);
-
+    char buffer_out[BUFFER_SIZE] =
+            "\n"
+            "Active Users:\n"
+            "";
+    //memset(buffer_out, 0, sizeof(buffer_out));
     for (int i = 0; i < FD_SETSIZE; i++) {
         if (clients[i].active) {
-            sprintf(buffer_out + strlen(buffer_out), "\t\t%s\n", clients[i].name);
+            sprintf(buffer_out + strlen(buffer_out), "\t%s\n", clients[i].name);
         }
     }
 
@@ -462,9 +452,9 @@ int main(int argc, char** argv) {
     int port = 9999;
 
     /* init */
-    install_signal_handler(); /* for safe shutdown */
-    atexit(&clean_up); /* clean up no matter how we exit */
-    crypto_init(); /* initialize encryption */
+    install_signal_handler();   /* for safe shutdown */
+    atexit(&clean_up);          /* clean up no matter how we exit */
+    crypto_init();              /* initialize encryption */
 
     /* Connection socket */
     if (!create_listen(port)) { return EXIT_FAILURE; }
@@ -533,25 +523,13 @@ int main(int argc, char** argv) {
                 if (buffer_in[0] == '!') {
                     printf("received a user command...\n");
 
-                    // Parse the first word out of the data.
-                    /* todo: no idea how to do this. using strtok for now */
+                    /* Parse the first word out of the data. */
                     char* command = strtok(buffer_in, " \n");
-                    // All incoming data from clients will be interpreted as a command.
+                    /* check against command first */
+                    //todo: user naming themselves admin would be a problem
+                    //  need to check names against commands
                     if (NULL != command) {
                         char* data = &buffer_in[strlen(command) + 1];
-
-                        // bryan - removed temporarily printing data on command
-                        // only action still printing funny.
-
-                        //size_t len = strlen(data);
-                        //printf("command: %s\n", command);
-                        // make sure buffer_in was zeroed out before recv
-                        // or you will have ghost msg data and a bad day.
-                        //printf("msg: %s\n", data);
-                        //printf("length: %zu\n", len);
-
-                        // Compare the first string to all the possible commands
-                        // If a match is found, pass remaining data to appropriate function
 
                         if (strcmp("!admin", command) == 0) {
                             admin_cmd(i, data);
@@ -569,9 +547,7 @@ int main(int argc, char** argv) {
                         }
 
                         if (strcmp("!shutdown", command) == 0) {
-                            if (shutdown_cmd(i)) {
-                                exit_program = true;
-                            }
+                            shutdown_cmd(i);
                             continue;
                         }
 
@@ -595,27 +571,29 @@ int main(int argc, char** argv) {
                             continue;
                         }
 
-                        // Check usernames table
                         /* search usernames */
                         int fd = find_client(&command[1]);
                         /* don't send back to yourself */
                         if (fd != -1 && i != fd) {
-                            /* tag message with username */
+                            /* tag message with sender username */
                             sprintf(buffer_out, "%s:%s", clients[i].name, data);
                             ssize_t sent = send_encrypted_message(fd, clients[fd].key, buffer_out);
                             if (-1 == sent) { printf("error sending chat to user\n"); }
                             continue;
                         }
                     }
-                    // Bad command, send error back
+
+                    /* Bad command, send error back */
                     sprintf(buffer_out, "Invalid command '%s', use !help to view list of valid commands", command);
                     ssize_t sent = send_encrypted_message(i, clients[i].key, buffer_out);
                     if (-1 == sent) { printf("error sending invalid command error to user %s\n", clients[i].name); }
                     continue;
                 }
-                // Invalid message format, send error back
+
+                /* Invalid message format, send error back */
                 sprintf(buffer_out,
-                        "Invalid format '%s', must use commands in format of !<command>. use !help to view list of valid commands",
+                        "Invalid format '%s', must use commands in format of "
+                        "!<command>. use !help to view list of valid commands",
                         buffer_in);
                 ssize_t sent = send_encrypted_message(i, clients[i].key, buffer_out);
                 if (-1 == sent) { printf("error sending invalid command error to user %s\n", clients[i].name); }
