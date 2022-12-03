@@ -11,11 +11,13 @@
 #include "common.h"
 #include "cryptotest.h"
 
+#define prompt() { printf("%s> ", username); fflush(stdout); }
+
 
 /* remember kids globals are bad. m'kay? */
 int sockfd = -1; /* connection to server */
 unsigned char key[KEY_SIZE]; /* our symmetrical key */
-/* our session key encryted with sever public key */
+/* our session key encrypted with sever public key */
 int encryptedkey_len;
 unsigned char encrypted_key[256];
 
@@ -104,11 +106,11 @@ bool handshake(
      from this point on ALL communications are encrypted with our key
      ******************************************************************/
 
-    /* P2 do we need to ack key received? yes, apparently. */
-    /* OS is occasionally combining the previous and next send into one
-     * packet. Which is giving rsa_decrypt kvetches.
-     * Not the only solution, but doing ACK to break up the sends.
-     */
+    /* Do we need to ack key received?
+     * yes, apparently.
+     * OS is occasionally combining the previous and next send into one packet.
+     * Which is giving rsa_decrypt kvetches.
+     * Not the only solution, but doing an ACK to break up the sends */
 
     /* receive ACK */
     rec = recv_encrypted_message(sockfd, key, buffer_in);
@@ -186,6 +188,7 @@ int main(int argc, char** argv) {
     char buffer_in[BUFFER_SIZE];
     char buffer_out[BUFFER_SIZE];
 
+    /* command line args */
     char username[NAME_SIZE];
     char ipaddr[20];
     uint16_t portNum;
@@ -202,15 +205,15 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    printf("!help for help\n.");
-    printf("%s > ", username);
-    fflush(stdout);
+    printf("!help for help\n");
+    prompt();
     while (1) {
         /* only two fds. just set everytime */
-        FD_ZERO(&fds); /* because fd_set hates me */
-        FD_SET(sockfd, &fds); /* server socket */
-        FD_SET(fileno(stdin), &fds); /* stdin */
-        int s = select(FD_SETSIZE, &fds, NULL, NULL, &tv); /* tv so we don't (lockup) block */
+        FD_ZERO(&fds);                  /* because fd_set hates me */
+        FD_SET(sockfd, &fds);           /* server socket */
+        FD_SET(fileno(stdin), &fds);    /* stdin */
+        /* tv so we don't (lockup) block */
+        int s = select(FD_SETSIZE, &fds, NULL, NULL, &tv);
         if (s < 0) {
             printf("select error\n");
             return EXIT_FAILURE;
@@ -264,8 +267,7 @@ int main(int argc, char** argv) {
                     return EXIT_FAILURE;
                 }
             }
-            printf("%s > ", username);
-            fflush(stdout);
+            prompt();
         }
 
         /* check for data from server */
@@ -279,18 +281,10 @@ int main(int argc, char** argv) {
                 /* server closed connection */
                 return EXIT_SUCCESS;
             }
-            else {
-                // todo: check for new username notification from server
-                //  and update username variable
 
-                // Client has a really simple job:
-                //      Print whatever the server sends it
-                //      Send the server whatever the user inputs
-                // That's basically it.
-                /* P2 decrypt text with our key */
-                /* P2 print decrypted text */
-                printf("%s\n", buffer_in);
-            }
+            /* print decrypted text */
+            printf("%s\n", buffer_in);
+            prompt();
         }
     }
 
