@@ -1,27 +1,46 @@
 # Encrypted Chat Server  
-GVUS  
-FALL 2022  
-CIS 457 03  
-Project 3  
 
- Bryan Vandyke  
-  email: vandybry@mail.gvsu.edu  
-  email: bryan.vandyke@gmail.com  
+---
 
- Evan Johns  
-  email: johnsev@mail.gvsu.edu  
-  email: evanlloydjohns@gmail.com  
+### Authors
+* __Bryan Vandyke:__ ([GitHub](https://github.com/bryanvandyke), vandybry@mail.gvsu.edu, bryan.vandyke@gmail.com)
+
+* __Evan Johns:__ ([GitHub](https://github.com/CutlassS1968), johnsev@mail.gvsu.edu, evanlloydjohns@gmail.com)
+
+### Details
+* Project 3 - Encrypted Chat Server
+* CIS 457 -  _Data Communications_, Section 03  
+* Grand Valley State University, Fall 2022
+
+
+
   
-  ## install
-  make keys - generate initial or new public private keys for server  
-  make      - client and server program  
+
+## Building
+
+Building is relatively simple with the included MakeFile.
+
+First need to generate the initial or new public and private keys for the server.
+```ssh
+make keys
+```
+Then compile the code into the client and server executables.
+```ssh
+make
+``` 
   
-  ## run  
-  ./server  
-  note: server currently has port hardcoded to 9999  
-    
-  ./client [server ip address] 9999 [username]
-  
-  !help - in client for list of commands.  
-  Admin clients have an addtional set of commands available.  
-  
+## Running
+
+To run the server on a given machine, execute the following line in your terminal:
+```ssh  
+./server
+```
+  > _Note: server currently has port hardcoded to 9999_  
+
+
+To run the client on a machine, execute the following line 
+```ssh
+./client <ip_address> 9999 <username>
+```
+
+Use the `!help` command to view a list of commands. `!help` will also display a list of exclusive commands for Admins when the connected client is an Admin.
