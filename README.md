@@ -1,7 +1,5 @@
 # Encrypted Chat Server  
 
----
-
 ### Authors
 * __Bryan Vandyke:__ ([GitHub](https://github.com/bryanvandyke), vandybry@mail.gvsu.edu, bryan.vandyke@gmail.com)
 
@@ -31,16 +29,17 @@ make
   
 ## Running
 
-To run the server on a given machine, execute the following line in your terminal:
+To run the server, execute the following line:
 ```ssh  
 ./server
 ```
   > _Note: server currently has port hardcoded to 9999_  
 
 
-To run the client on a machine, execute the following line 
+And execute this line to run the client:
 ```ssh
 ./client <ip_address> 9999 <username>
 ```
+> _Note: Where `<ip_address>` is the server's IP address, and `<username>` is the username that will be used when chatting over the server_
 
 Use the `!help` command to view a list of commands. `!help` will also display a list of exclusive commands for Admins when the connected client is an Admin.
